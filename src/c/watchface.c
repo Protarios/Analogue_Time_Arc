@@ -187,7 +187,7 @@ static bool compute_show_shadow(GRect bounds, GPoint centre,
         if (ev->duration_mins <= 0) continue;
         int start = ev->start_mins;
         int end   = ev->start_mins + ev->duration_mins;
-        if (start >= 720) continue;
+        start = start % 720;
         if (end   >  720) end = 720;
         int start_deg = start * 360 / 720;
         int end_deg   = end   * 360 / 720;
@@ -374,8 +374,8 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
     #if SCREENSHOT_MODE
       s_event_count = 2;
   
-      // 1:00 → 2:30 (Blue)
-      s_events[0].start_mins    = 60;
+      // 11:00 → 2:30 (Blue)
+      s_events[0].start_mins    = 11*60;
       s_events[0].duration_mins = 90;
       s_events[0].cal_index     = 0;
   
@@ -457,41 +457,65 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
 
     // -- Calendar arc ring -------------------------------------
     int arc_stroke = 8;
+    
     for (int i = 0; i < s_event_count; i++) {
         CalEvent *ev = &s_events[i];
         if (ev->duration_mins <= 0) continue;
-        int start = ev->start_mins;
-        int end   = ev->start_mins + ev->duration_mins;
-        if (start >= 720) continue;
-        if (end   >  720) end = 720;
-        int start_deg = start * 360 / 720;
-        int end_deg   = end   * 360 / 720;
+    
+        int raw_start = ev->start_mins;
+        int raw_end   = ev->start_mins + ev->duration_mins;
+    
+        // Normalize to 12-hour dial (0–720)
+        int start = raw_start % 720;
+        int end   = raw_end   % 720;
+    
+        bool wraps = (raw_end - raw_start) >= 720 ? true : (end < start);
+    
         int ci = ev->cal_index;
         if (ci < 0 || ci >= MAX_CALENDARS) ci = 0;
+    
         GColor color = palette_color(s_cal_color_idx[ci]);
         graphics_context_set_stroke_color(ctx, color);
         graphics_context_set_stroke_width(ctx, arc_stroke);
-        if (is_round) {
-            int arc_radius = clock_radius + arc_stroke;
-            for (int deg = start_deg; deg < end_deg; deg += 3) {
-                int d2 = (deg + 3 < end_deg) ? deg + 3 : end_deg;
-                GPoint p1 = GPoint(
-                    centre.x + sin_lookup(DEG_TO_TRIGANGLE(deg)) * arc_radius / TRIG_MAX_RATIO,
-                    centre.y - cos_lookup(DEG_TO_TRIGANGLE(deg)) * arc_radius / TRIG_MAX_RATIO);
-                GPoint p2 = GPoint(
-                    centre.x + sin_lookup(DEG_TO_TRIGANGLE(d2)) * arc_radius / TRIG_MAX_RATIO,
-                    centre.y - cos_lookup(DEG_TO_TRIGANGLE(d2)) * arc_radius / TRIG_MAX_RATIO);
-                graphics_draw_line(ctx, p1, p2);
-            }
+    
+        // Helper to draw a segment
+        #define DRAW_ARC_SEGMENT(seg_start, seg_end) \
+            do { \
+                int start_deg = (seg_start) * 360 / 720; \
+                int end_deg   = (seg_end)   * 360 / 720; \
+                if (is_round) { \
+                    int arc_radius = clock_radius + arc_stroke; \
+                    for (int deg = start_deg; deg < end_deg; deg += 3) { \
+                        int d2 = (deg + 3 < end_deg) ? deg + 3 : end_deg; \
+                        GPoint p1 = GPoint( \
+                            centre.x + sin_lookup(DEG_TO_TRIGANGLE(deg)) * arc_radius / TRIG_MAX_RATIO, \
+                            centre.y - cos_lookup(DEG_TO_TRIGANGLE(deg)) * arc_radius / TRIG_MAX_RATIO); \
+                        GPoint p2 = GPoint( \
+                            centre.x + sin_lookup(DEG_TO_TRIGANGLE(d2)) * arc_radius / TRIG_MAX_RATIO, \
+                            centre.y - cos_lookup(DEG_TO_TRIGANGLE(d2)) * arc_radius / TRIG_MAX_RATIO); \
+                        graphics_draw_line(ctx, p1, p2); \
+                    } \
+                } else { \
+                    int inset = arc_stroke / 2; \
+                    for (int deg = start_deg; deg < end_deg; deg += 1) { \
+                        int d2 = (deg + 1 < end_deg) ? deg + 1 : end_deg; \
+                        GPoint p1 = perimeter_point(bounds, inset, deg); \
+                        GPoint p2 = perimeter_point(bounds, inset, d2); \
+                        graphics_draw_line(ctx, p1, p2); \
+                    } \
+                } \
+            } while (0)
+    
+        if (!wraps) {
+            // Normal case
+            DRAW_ARC_SEGMENT(start, end);
         } else {
-            int inset = arc_stroke / 2;
-            for (int deg = start_deg; deg < end_deg; deg += 1) {
-                int d2 = (deg + 1 < end_deg) ? deg + 1 : end_deg;
-                GPoint p1 = perimeter_point(bounds, inset, deg);
-                GPoint p2 = perimeter_point(bounds, inset, d2);
-                graphics_draw_line(ctx, p1, p2);
-            }
+            // Wraps past 12 → split into two arcs
+            DRAW_ARC_SEGMENT(start, 720);
+            DRAW_ARC_SEGMENT(0, end);
         }
+    
+        #undef DRAW_ARC_SEGMENT
     }
 
     // -- Hour hand ---------------------------------------------
