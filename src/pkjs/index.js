@@ -207,79 +207,125 @@ function pushArcEvent(events, calendarIndex, start, durationMs, now, cutoff, tit
 }
 
 function parseICS(raw, calendarIndex, now, cutoff) {
-    var text  = unfoldICS(raw);
+    var text = unfoldICS(raw);
     var lines = text.split(/\r?\n/);
-    var events = [];
-    var inEvent = false, current = null;
 
-    // Collect EXDATE values at calendar level too (some feeds put them outside VEVENT)
-    var globalExdates = {};
+    var events = [];
+
+    var inEvent = false;
+    var current = null;
 
     for (var i = 0; i < lines.length; i++) {
         var line = lines[i].trim();
+        if (!line) continue;
+
+        // ─── State transitions ─────────────────────────────
         if (line === "BEGIN:VEVENT") {
             inEvent = true;
-            current = { dtstart: null, dtend: null, duration: null, rrule: null, exdates: {}, summary: "" };
+            current = {
+                dtstart: null,
+                dtend: null,
+                duration: null,
+                rrule: null,
+                exdates: {},
+                summary: ""
+            };
             continue;
         }
-        else if (key === "SUMMARY") {
-            current.summary = value;
-        }
+
         if (line === "END:VEVENT") {
-            inEvent = false;
             if (current && current.dtstart) {
                 var start = current.dtstart;
                 var durationMs;
+
                 if (current.dtend) {
                     durationMs = current.dtend.getTime() - start.getTime();
                 } else if (current.duration) {
                     durationMs = current.duration;
                 } else {
-                    durationMs = 60 * 60 * 1000; // default 1 hour
+                    durationMs = 60 * 60 * 1000;
                 }
 
                 if (current.rrule) {
-                    // Recurring event: expand occurrences
                     var occurrences = expandRRule(start, current.rrule, now, cutoff);
+
                     for (var o = 0; o < occurrences.length; o++) {
                         var occ = occurrences[o];
-                        // Check EXDATE: compare date-only strings to handle UTC vs local
-                        var occKey = dateOnly(occ).getTime();
-                        if (current.exdates[occKey]) continue;
-                        pushArcEvent(events, calendarIndex, occ, durationMs, now, cutoff, current.summary);
+
+                        var key = dateOnly(occ).getTime();
+                        if (current.exdates[key]) continue;
+
+                        pushArcEvent(
+                            events,
+                            calendarIndex,
+                            occ,
+                            durationMs,
+                            now,
+                            cutoff,
+                            current.summary
+                        );
                     }
                 } else {
-                    // Single event
-                    pushArcEvent(events, calendarIndex, start, durationMs, now, cutoff, current.summary);
+                    pushArcEvent(
+                        events,
+                        calendarIndex,
+                        start,
+                        durationMs,
+                        now,
+                        cutoff,
+                        current.summary
+                    );
                 }
             }
+
+            inEvent = false;
             current = null;
             continue;
         }
+
+        // ─── Ignore everything outside VEVENT ───────────────
         if (!inEvent || !current) continue;
+
+        // ─── Key/Value parsing ──────────────────────────────
         var colonIdx = line.indexOf(":");
         if (colonIdx < 0) continue;
-        // Key may have parameters before colon e.g. "DTSTART;TZID=..."
-        var rawKey  = line.substring(0, colonIdx);
-        var key     = rawKey.toUpperCase().split(";")[0];
-        var value   = line.substring(colonIdx + 1);
+
+        var rawKey = line.substring(0, colonIdx);
+        var key = rawKey.toUpperCase().split(";")[0];
+        var value = line.substring(colonIdx + 1);
+
+        // ─── Property handling ──────────────────────────────
         if (key === "DTSTART") {
             current.dtstart = parseICSDate(value);
-        } else if (key === "DTEND") {
+        }
+
+        else if (key === "DTEND") {
             current.dtend = parseICSDate(value);
-        } else if (key === "DURATION") {
+        }
+
+        else if (key === "DURATION") {
             current.duration = parseDuration(value);
-        } else if (key === "RRULE") {
+        }
+
+        else if (key === "RRULE") {
             current.rrule = value;
-        } else if (key === "EXDATE") {
-            // EXDATE may list multiple dates comma-separated
+        }
+
+        else if (key === "SUMMARY") {
+            current.summary = value;
+        }
+
+        else if (key === "EXDATE") {
             var exParts = value.split(",");
             for (var ex = 0; ex < exParts.length; ex++) {
                 var exDate = parseICSDate(exParts[ex].trim());
-                if (exDate) current.exdates[dateOnly(exDate).getTime()] = true;
+                if (exDate) {
+                    current.exdates[dateOnly(exDate).getTime()] = true;
+                }
             }
         }
     }
+
     return events;
 }
 
@@ -305,6 +351,7 @@ function sendDisplaySettings() {
         14: typeof config.minuteColor === "number" ? config.minuteColor : 11,
         21: (config.showSeconds !== false) ? 1 : 0,
         22: (config.batteryWarningOnly !== false) ? 1 : 0,
+        23: config.overlayAboveHands ? 1 : 0,
     };
     Pebble.sendAppMessage(msg, function() {
         console.log("Display settings sent: " + JSON.stringify(msg));
@@ -476,7 +523,7 @@ Pebble.addEventListener("ready", function() {
 
 Pebble.addEventListener("showConfiguration", function() {
     var config = localStorage.getItem("calendarConfig") || "{}";
-    Pebble.openURL("https://davv47.github.io/pebble-analogue-config/index.html?config="
+    Pebble.openURL("https://protarios.github.io/pebble-analogue-config/index.html?config="
                    + encodeURIComponent(config));
     //Pebble.openURL("https://your-config-page/index.html?config="char
     //                + encodeURIComponent(config));
