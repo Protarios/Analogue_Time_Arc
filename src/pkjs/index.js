@@ -193,7 +193,7 @@ function expandRRule(dtstart, rruleStr, now, cutoff) {
 }
 
 // Convert a Date+duration into an arc event and push if it falls in window
-function pushArcEvent(events, calendarIndex, start, durationMs, now, cutoff) {
+function pushArcEvent(events, calendarIndex, start, durationMs, now, cutoff, title) {
     var end = new Date(start.getTime() + durationMs);
     if (end <= now || start >= cutoff) return;
     var startMins    = (start.getHours() * 60 + start.getMinutes()) % 720;
@@ -202,7 +202,7 @@ function pushArcEvent(events, calendarIndex, start, durationMs, now, cutoff) {
     if (durationMins <= 0) durationMins += 720;
     durationMins = Math.min(durationMins, 720);
     if (durationMins > 0) {
-        events.push({ calIndex: calendarIndex, startMins: startMins, durationMins: durationMins });
+        events.push({ calIndex: calendarIndex, startMins: startMins, durationMins: durationMins, title: title || "" });
     }
 }
 
@@ -219,8 +219,11 @@ function parseICS(raw, calendarIndex, now, cutoff) {
         var line = lines[i].trim();
         if (line === "BEGIN:VEVENT") {
             inEvent = true;
-            current = { dtstart: null, dtend: null, duration: null, rrule: null, exdates: {} };
+            current = { dtstart: null, dtend: null, duration: null, rrule: null, exdates: {}, summary: "" };
             continue;
+        }
+        else if (key === "SUMMARY") {
+            current.summary = value;
         }
         if (line === "END:VEVENT") {
             inEvent = false;
@@ -243,11 +246,11 @@ function parseICS(raw, calendarIndex, now, cutoff) {
                         // Check EXDATE: compare date-only strings to handle UTC vs local
                         var occKey = dateOnly(occ).getTime();
                         if (current.exdates[occKey]) continue;
-                        pushArcEvent(events, calendarIndex, occ, durationMs, now, cutoff);
+                        pushArcEvent(events, calendarIndex, occ, durationMs, now, cutoff, current.summary);
                     }
                 } else {
                     // Single event
-                    pushArcEvent(events, calendarIndex, start, durationMs, now, cutoff);
+                    pushArcEvent(events, calendarIndex, start, durationMs, now, cutoff, current.summary);
                 }
             }
             current = null;
@@ -299,6 +302,9 @@ function sendDisplaySettings() {
         8:  (config.showTicks !== false) ? 1 : 0,
         12: typeof config.hourColor === "number" ? config.hourColor : 11,
         13: packedColors,
+        14: typeof config.minuteColor === "number" ? config.minuteColor : 11,
+        21: (config.showSeconds !== false) ? 1 : 0,
+        22: (config.batteryWarningOnly !== false) ? 1 : 0,
     };
     Pebble.sendAppMessage(msg, function() {
         console.log("Display settings sent: " + JSON.stringify(msg));
@@ -310,17 +316,57 @@ function sendDisplaySettings() {
 // ─── Send events ─────────────────────────────────────────────────────────────
 
 function sendEventsToWatch(events) {
-    events.sort(function(a, b) { return a.startMins - b.startMins; });
+
+    var now = new Date();
+
+    var nowMinutes = now.getHours() * 60 + now.getMinutes();
+
+    events.sort(function(a, b) {
+
+        function activeScore(e) {
+            var end = e.startMins + e.durationMins;
+            return (nowMinutes >= e.startMins && nowMinutes < end) ? 0 : 1;
+        }
+
+        var sa = activeScore(a);
+        var sb = activeScore(b);
+
+        if (sa !== sb) return sa - sb;
+
+        return a.startMins - b.startMins;
+    });
+
     events = events.slice(0, 10);
+
     var packed = events.map(function(e) {
         return e.startMins + "," + e.durationMins + "," + e.calIndex;
     }).join("|");
+
+    var next = events.slice(0, 3);
+
+    var msg = {
+
+        5: packed,
+
+        15: next[0] && next[0].title ? next[0].title.substring(0, 28) : "",
+        16: next[1] && next[1].title ? next[1].title.substring(0, 28) : "",
+        17: next[2] && next[2].title ? next[2].title.substring(0, 28) : "",
+
+        18: next[0] ? next[0].calIndex : 0,
+        19: next[1] ? next[1].calIndex : 0,
+        20: next[2] ? next[2].calIndex : 0
+    };
+
     console.log("Sending " + events.length + " events: " + packed);
-    Pebble.sendAppMessage({ 5: packed }, function() {
-        console.log("Events sent");
-    }, function(e) {
-        console.log("Send failed: " + JSON.stringify(e));
-    });
+
+    Pebble.sendAppMessage(msg,
+        function() {
+            console.log("Events sent");
+        },
+        function(e) {
+            console.log("Send failed: " + JSON.stringify(e));
+        }
+    );
 }
 
 // ─── Fetch calendars ──────────────────────────────────────────────────────────
@@ -432,6 +478,8 @@ Pebble.addEventListener("showConfiguration", function() {
     var config = localStorage.getItem("calendarConfig") || "{}";
     Pebble.openURL("https://davv47.github.io/pebble-analogue-config/index.html?config="
                    + encodeURIComponent(config));
+    //Pebble.openURL("https://your-config-page/index.html?config="char
+    //                + encodeURIComponent(config));
 });
 
 Pebble.addEventListener("webviewclosed", function(e) {

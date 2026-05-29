@@ -18,6 +18,18 @@
 // 9-11 retired (individual cal colour keys replaced by packed string)
 #define KEY_HOUR_HAND_COLOR   12
 #define KEY_CAL_COLORS        13  // packed "c0,c1,c2,...,c9" palette indices
+#define KEY_MIN_HAND_COLOR    14
+
+#define KEY_EVENT_TEXT_0      15
+#define KEY_EVENT_TEXT_1      16
+#define KEY_EVENT_TEXT_2      17
+
+#define KEY_EVENT_CAL_0       18
+#define KEY_EVENT_CAL_1       19
+#define KEY_EVENT_CAL_2       20
+
+#define KEY_SHOW_SECONDS          21
+#define KEY_BATTERY_WARNING_ONLY  22
 
 // Rendering of Screenshots
 #define SCREENSHOT_MODE 0
@@ -71,6 +83,16 @@ static bool   s_show_ticks     = true;
 // Default colours spread across the palette for visual variety
 static int s_cal_color_idx[MAX_CALENDARS] = { 0, 4, 8, 2, 9, 5, 1, 7, 10, 3 };
 static int s_hour_hand_color = 11;
+static int s_min_hand_color  = 11;
+
+static bool s_show_seconds = true;
+static bool s_battery_warning_only = true;
+
+static int  s_battery_percent = 100;
+static bool s_battery_charging = false;
+
+static char s_event_text[3][32];
+static int  s_event_cal[3];
 
 static int s_weather_temp = INT_MIN;
 static int s_weather_code = -1;
@@ -206,6 +228,38 @@ static bool compute_show_shadow(GRect bounds, GPoint centre,
         }
     }
     return false;
+}
+
+static void battery_callback(BatteryChargeState state) {
+    s_battery_percent  = state.charge_percent;
+    s_battery_charging = state.is_charging;
+
+    layer_mark_dirty(s_canvas_layer);
+}
+
+// --- Tick handler ---------------------------------------------
+static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
+    layer_mark_dirty(s_canvas_layer);
+}
+
+// --- Parse helper ---------------------------------------------
+static int parse_int(const char **p) {
+    int val = 0;
+    while (**p >= '0' && **p <= '9') {
+        val = val * 10 + (**p - '0');
+        (*p)++;
+    }
+    return val;
+}
+
+static void update_tick_subscription(void) {
+
+    tick_timer_service_unsubscribe();
+
+    tick_timer_service_subscribe(
+        s_show_seconds ? SECOND_UNIT : MINUTE_UNIT,
+        tick_handler
+    );
 }
 
 // --- Weather icon drawing -------------------------------------
@@ -390,6 +444,7 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
 
     int hour_angle = (now->tm_hour % 12) * 30 + now->tm_min / 2;
     int min_angle  = now->tm_min * 6 + now->tm_sec / 10;
+    int sec_angle = now->tm_sec * 6;
 
     int clock_radius = MIN(bounds.size.w, bounds.size.h) / 2 - 10;
     bool is_round = (bounds.size.w == bounds.size.h);
@@ -403,7 +458,7 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
         min_len  = clock_radius;
     }
 
-    int weather_x = centre.x + (bounds.size.w - centre.x) / 2;
+    int weather_x = (centre.x + (bounds.size.w - centre.x) / 2) - 5;
     int weather_y = centre.y - 10;
     int wx = weather_x - 20, wy = weather_y, ww = 60, wh = 40;
 
@@ -421,7 +476,7 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
     #endif
     if (show_ticks) {
         int arc_inset = 4;
-        graphics_context_set_stroke_color(ctx, GColorWhite);
+        graphics_context_set_stroke_color(ctx, palette_color(s_min_hand_color));
         for (int h = 0; h < 12; h++) {
             int deg = h * 30;
             bool is_cardinal = (h % 3 == 0);
@@ -536,7 +591,86 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
 
     graphics_context_set_fill_color(ctx, GColorWhite);
     graphics_fill_rect(ctx, GRect(centre.x - 3, centre.y - 3, 6, 6), 0, GCornerNone);
+ 
+    // -- Second hand -------------------------------------------
+    if (s_show_seconds) {
+    
+        int sec_len = clock_radius - 6;
+    
+        graphics_context_set_stroke_color(ctx, GColorRed);
+        graphics_context_set_stroke_width(ctx, 1);
+    
+        GPoint tip_sec = GPoint(
+            centre.x + sin_lookup(DEG_TO_TRIGANGLE(sec_angle)) * sec_len / TRIG_MAX_RATIO,
+            centre.y - cos_lookup(DEG_TO_TRIGANGLE(sec_angle)) * sec_len / TRIG_MAX_RATIO
+        );
+    
+        graphics_draw_line(ctx, centre, tip_sec);
+    }  
 
+    // -- Battery -------------------------------------------
+    bool show_battery =
+        !s_battery_warning_only ||
+        s_battery_percent <= 20 ||
+        s_battery_charging;
+    
+    if (show_battery) {
+    
+        char batt[16];
+    
+        if (s_battery_charging)
+            snprintf(batt, sizeof(batt), "+%d%%", s_battery_percent);
+        else
+            snprintf(batt, sizeof(batt), "%d%%", s_battery_percent);
+    
+        int batt_y = centre.y - clock_radius + 18;
+    
+        if (show_shadow) {
+    
+            static const int offsets[4][2] = {
+                {-1,0},{1,0},{0,-1},{0,1}
+            };
+    
+            for (int o = 0; o < 4; o++) {
+    
+                graphics_context_set_text_color(ctx, GColorBlack);
+    
+                graphics_draw_text(
+                    ctx,
+                    batt,
+                    s_small_font,
+                    GRect(
+                        offsets[o][0],
+                        batt_y + offsets[o][1],
+                        bounds.size.w,
+                        20
+                    ),
+                    GTextOverflowModeWordWrap,
+                    GTextAlignmentCenter,
+                    NULL
+                );
+            }
+        }
+    
+        graphics_context_set_text_color(
+            ctx,
+            s_battery_percent <= 20
+                ? GColorRed
+                : s_text_color
+        );
+    
+        graphics_draw_text(
+            ctx,
+            batt,
+            s_small_font,
+            GRect(0, batt_y, bounds.size.w, 20),
+            GTextOverflowModeWordWrap,
+            GTextAlignmentCenter,
+            NULL
+        );
+    }  
+  
+  
     // -- Weather -----------------------------------------------
     char weather_str[32] = "--\xc2\xb0" "C";
     if (s_weather_temp != INT_MIN) {
@@ -581,39 +715,58 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
             // Determine the bottom reference point:
             //   Round watch  → inner tip of the 6 o'clock cardinal tick
             //   Square watch → bottom perimeter minus the arc inset
-            int bottom_edge;
+            int date_x;
+            int date_y;
+            
             if (is_round) {
-                // Cardinal tick length is 18px; inner tip is clock_radius - 18 below centre
-                int tick_len_cardinal = 18;
-                bottom_edge = centre.y + (clock_radius - tick_len_cardinal);
+            
+                date_x = centre.x - clock_radius + 28;
+                date_y = centre.y - 14;
+            
             } else {
-                // Perimeter at 6 o'clock for square is bounds bottom minus the 4px arc inset
-                int arc_inset = 4;
-                bottom_edge = bounds.size.h - 1 - arc_inset;
+            
+                date_x = 22;
+                date_y = centre.y - 18;
             }
-
-            // Midpoint between centre and that inner edge
-            int date_y_mid = (centre.y + bottom_edge) / 2;
-
-            // Centre the text vertically on that midpoint
-            // GOTHIC_24_BOLD renders at ~28px tall
-            int font_h = 28;
-            int date_y = date_y_mid - font_h / 2;
-
+            
             if (show_shadow) {
-                static const int offsets[4][2] = {{-1,0},{1,0},{0,-1},{0,1}};
+            
+                static const int offsets[4][2] = {
+                    {-1,0},{1,0},{0,-1},{0,1}
+                };
+            
                 for (int o = 0; o < 4; o++) {
+            
                     graphics_context_set_text_color(ctx, GColorBlack);
-                    graphics_draw_text(ctx, date_str, s_date_font,
-                        GRect(offsets[o][0], date_y + offsets[o][1],
-                              bounds.size.w, font_h),
-                        GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
+            
+                    graphics_draw_text(
+                        ctx,
+                        date_str,
+                        s_date_font,
+                        GRect(
+                            date_x + offsets[o][0],
+                            date_y + offsets[o][1],
+                            40,
+                            28
+                        ),
+                        GTextOverflowModeWordWrap,
+                        GTextAlignmentCenter,
+                        NULL
+                    );
                 }
             }
+            
             graphics_context_set_text_color(ctx, s_text_color);
-            graphics_draw_text(ctx, date_str, s_date_font,
-                GRect(0, date_y, bounds.size.w, font_h),
-                GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
+            
+            graphics_draw_text(
+                ctx,
+                date_str,
+                s_date_font,
+                GRect(date_x, date_y, 40, 28),
+                GTextOverflowModeWordWrap,
+                GTextAlignmentCenter,
+                NULL
+            );
 
         } else {
             // No ticks, square watch: full "Day Mon DD" label at the bottom
@@ -624,21 +777,33 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
                 GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
         }
     }
-}
+  int text_y = bounds.size.h - 52;
 
-// --- Tick handler ---------------------------------------------
-static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
-    layer_mark_dirty(s_canvas_layer);
-}
-
-// --- Parse helper ---------------------------------------------
-static int parse_int(const char **p) {
-    int val = 0;
-    while (**p >= '0' && **p <= '9') {
-        val = val * 10 + (**p - '0');
-        (*p)++;
-    }
-    return val;
+  for (int i = 0; i < 3; i++) {
+  
+      if (strlen(s_event_text[i]) == 0)
+          continue;
+  
+      int event_cal = s_event_cal[i];
+  
+      if (event_cal < 0 || event_cal >= MAX_CALENDARS)
+          event_cal = 0;
+  
+      graphics_context_set_text_color(
+          ctx,
+          palette_color(s_cal_color_idx[event_cal])
+      );
+  
+      graphics_draw_text(
+          ctx,
+          s_event_text[i],
+          s_small_font,
+          GRect(4, text_y + i * 16, bounds.size.w - 8, 16),
+          GTextOverflowModeTrailingEllipsis,
+          GTextAlignmentCenter,
+          NULL
+      );
+  }
 }
 
 // --- AppMessage -----------------------------------------------
@@ -688,6 +853,35 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
     if (wc) s_weather_code = wc->value->int32;
 
     layer_mark_dirty(s_canvas_layer);
+  
+    Tuple *mh = dict_find(iter, KEY_MIN_HAND_COLOR);
+    if (mh) s_min_hand_color = (int)mh->value->int32;
+    
+    Tuple *ss = dict_find(iter, KEY_SHOW_SECONDS);
+    if (ss) s_show_seconds = (ss->value->int32 != 0);
+    
+    Tuple *bw = dict_find(iter, KEY_BATTERY_WARNING_ONLY);
+    if (bw) s_battery_warning_only = (bw->value->int32 != 0);
+    
+    update_tick_subscription();
+  
+    Tuple *e0 = dict_find(iter, KEY_EVENT_TEXT_0);
+    Tuple *e1 = dict_find(iter, KEY_EVENT_TEXT_1);
+    Tuple *e2 = dict_find(iter, KEY_EVENT_TEXT_2);
+    
+    if (e0) strncpy(s_event_text[0], e0->value->cstring, sizeof(s_event_text[0]));
+    if (e1) strncpy(s_event_text[1], e1->value->cstring, sizeof(s_event_text[1]));
+    if (e2) strncpy(s_event_text[2], e2->value->cstring, sizeof(s_event_text[2]));
+  
+    Tuple *c0 = dict_find(iter, KEY_EVENT_CAL_0);
+    Tuple *c1 = dict_find(iter, KEY_EVENT_CAL_1);
+    Tuple *c2 = dict_find(iter, KEY_EVENT_CAL_2);
+    
+    if (c0) s_event_cal[0] = c0->value->int32;
+    if (c1) s_event_cal[1] = c1->value->int32;
+    if (c2) s_event_cal[2] = c2->value->int32;
+  
+
 }
 
 static void inbox_dropped_handler(AppMessageResult reason, void *context) {
@@ -717,15 +911,21 @@ static void init(void) {
         .unload = window_unload
     });
     window_stack_push(s_window, true);
-    tick_timer_service_subscribe(MINUTE_UNIT, tick_handler);
+    //tick_timer_service_subscribe(MINUTE_UNIT, tick_handler);
+    update_tick_subscription();
     app_message_register_inbox_received(inbox_received_handler);
     app_message_register_inbox_dropped(inbox_dropped_handler);
     app_message_open(512, 512);
+    battery_state_service_subscribe(battery_callback);
+    
+    BatteryChargeState state = battery_state_service_peek();
+    battery_callback(state);
 }
 
 static void deinit(void) {
     tick_timer_service_unsubscribe();
     window_destroy(s_window);
+    battery_state_service_unsubscribe();
 }
 
 int main(void) {
