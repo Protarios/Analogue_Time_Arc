@@ -254,6 +254,18 @@ function parseICS(raw, calendarIndex, now, cutoff) {
                     durationMs = current.isAllDay ? 24 * 60 * 60 * 1000 : 60 * 60 * 1000;
                 }
 
+                // Some ICS producers represent all-day entries with midnight
+                // DATE-TIME values instead of VALUE=DATE. Detect those too.
+                if (!current.isAllDay) {
+                    var effectiveEnd = new Date(start.getTime() + durationMs);
+                    current.isAllDay =
+                        start.getHours() === 0 && start.getMinutes() === 0 &&
+                        start.getSeconds() === 0 &&
+                        effectiveEnd.getHours() === 0 && effectiveEnd.getMinutes() === 0 &&
+                        effectiveEnd.getSeconds() === 0 &&
+                        dateOnly(effectiveEnd).getTime() > dateOnly(start).getTime();
+                }
+
                 if (current.rrule) {
                     var occurrences = expandRRule(start, current.rrule,
                                                    new Date(now.getTime() - durationMs), cutoff);
