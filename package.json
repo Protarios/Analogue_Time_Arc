@@ -18,7 +18,9 @@
             "TemperatureUnit": 2,
             "TextColor": 1,
             "WeatherCode": 7,
-            "WeatherTemp": 6
+            "WeatherTemp": 6,
+            "HourHandStyle": 24,
+            "MinuteHandStyle": 25
         },
         "projectType": "native",
         "resources": {
@@ -39,6 +41,12 @@
                         "emery",
                         "gabbro"
                     ],
+                    "type": "png"
+                },
+                {
+                    "file": "images/rainbow_hand.png",
+                    "name": "IMG_RAINBOW_HAND",
+                    "targetPlatforms": null,
                     "type": "png"
                 }
             ]
