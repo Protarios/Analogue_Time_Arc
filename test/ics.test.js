@@ -46,3 +46,10 @@ test('timed event retains a 60-minute arc', () => {
   assert.equal(events[0].allDay, false);
   assert.equal(events[0].durationMins, 60);
 });
+
+test('midnight-to-midnight DATE-TIME is also treated as all-day', () => {
+  const events = parse('BEGIN:VEVENT\\nDTSTART;TZID=Europe/Berlin:20261013T000000\\nDTEND;TZID=Europe/Berlin:20261014T000000\\nSUMMARY:Holiday\\nEND:VEVENT');
+  assert.equal(events.length, 1);
+  assert.equal(events[0].allDay, true);
+  assert.equal(events[0].durationMins, 0);
+});
