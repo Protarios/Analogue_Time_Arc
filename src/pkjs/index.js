@@ -193,16 +193,23 @@ function expandRRule(dtstart, rruleStr, now, cutoff) {
 }
 
 // Convert a Date+duration into an arc event and push if it falls in window
-function pushArcEvent(events, calendarIndex, start, durationMs, now, cutoff, title) {
+function pushArcEvent(events, calendarIndex, start, durationMs, now, cutoff, title, allDay) {
     var end = new Date(start.getTime() + durationMs);
     if (end <= now || start >= cutoff) return;
+    // Retain the label in the meeting list, but do not draw an all-day arc.
+    if (allDay) {
+        events.push({ calIndex: calendarIndex, startMins: 0, durationMins: 0,
+                      title: title || "", allDay: true });
+        return;
+    }
     var startMins    = (start.getHours() * 60 + start.getMinutes()) % 720;
     var endMins      = (end.getHours()   * 60 + end.getMinutes())   % 720;
     var durationMins = endMins - startMins;
     if (durationMins <= 0) durationMins += 720;
     durationMins = Math.min(durationMins, 720);
     if (durationMins > 0) {
-        events.push({ calIndex: calendarIndex, startMins: startMins, durationMins: durationMins, title: title || "" });
+        events.push({ calIndex: calendarIndex, startMins: startMins, durationMins: durationMins,
+                      title: title || "", allDay: false });
     }
 }
 
@@ -225,6 +232,7 @@ function parseICS(raw, calendarIndex, now, cutoff) {
             current = {
                 dtstart: null,
                 dtend: null,
+                isAllDay: false,
                 duration: null,
                 rrule: null,
                 exdates: {},
@@ -243,11 +251,12 @@ function parseICS(raw, calendarIndex, now, cutoff) {
                 } else if (current.duration) {
                     durationMs = current.duration;
                 } else {
-                    durationMs = 60 * 60 * 1000;
+                    durationMs = current.isAllDay ? 24 * 60 * 60 * 1000 : 60 * 60 * 1000;
                 }
 
                 if (current.rrule) {
-                    var occurrences = expandRRule(start, current.rrule, now, cutoff);
+                    var occurrences = expandRRule(start, current.rrule,
+                                                   new Date(now.getTime() - durationMs), cutoff);
 
                     for (var o = 0; o < occurrences.length; o++) {
                         var occ = occurrences[o];
@@ -262,7 +271,8 @@ function parseICS(raw, calendarIndex, now, cutoff) {
                             durationMs,
                             now,
                             cutoff,
-                            current.summary
+                            current.summary,
+                            current.isAllDay
                         );
                     }
                 } else {
@@ -273,7 +283,8 @@ function parseICS(raw, calendarIndex, now, cutoff) {
                         durationMs,
                         now,
                         cutoff,
-                        current.summary
+                        current.summary,
+                        current.isAllDay
                     );
                 }
             }
@@ -297,6 +308,8 @@ function parseICS(raw, calendarIndex, now, cutoff) {
         // ─── Property handling ──────────────────────────────
         if (key === "DTSTART") {
             current.dtstart = parseICSDate(value);
+            current.isAllDay = /(?:^|;)VALUE=DATE(?:;|$)/i.test(rawKey) ||
+                               /^\d{8}$/.test(value.trim());
         }
 
         else if (key === "DTEND") {
@@ -352,6 +365,9 @@ function sendDisplaySettings() {
         21: (config.showSeconds !== false) ? 1 : 0,
         22: (config.batteryWarningOnly !== false) ? 1 : 0,
         23: config.overlayAboveHands ? 1 : 0,
+        24: config.hourHandStyle === 1 ? 1 : 0,
+        25: (config.minuteHandStyle === 1 || config.minuteHandStyle === 2)
+                ? config.minuteHandStyle : 0,
     };
     Pebble.sendAppMessage(msg, function() {
         console.log("Display settings sent: " + JSON.stringify(msg));
@@ -369,6 +385,8 @@ function sendEventsToWatch(events) {
     var nowMinutes = now.getHours() * 60 + now.getMinutes();
 
     events.sort(function(a, b) {
+        // Timed meetings take precedence over all-day notes in the compact list.
+        if (!!a.allDay !== !!b.allDay) return a.allDay ? 1 : -1;
 
         function activeScore(e) {
             var end = e.startMins + e.durationMins;
@@ -386,7 +404,8 @@ function sendEventsToWatch(events) {
     events = events.slice(0, 10);
 
     var packed = events.map(function(e) {
-        return e.startMins + "," + e.durationMins + "," + e.calIndex;
+        return e.startMins + "," + e.durationMins + "," + e.calIndex + "," +
+               (e.allDay ? 1 : 0);
     }).join("|");
 
     var next = events.slice(0, 3);
