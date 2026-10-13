@@ -31,6 +31,8 @@
 #define KEY_SHOW_SECONDS          21
 #define KEY_BATTERY_WARNING_ONLY  22
 #define KEY_OVERLAY_ABOVE_HANDS   23
+#define KEY_HOUR_HAND_STYLE       24
+#define KEY_MIN_HAND_STYLE        25
 
 // Rendering of Screenshots
 #define SCREENSHOT_MODE 0
@@ -71,6 +73,7 @@ typedef struct {
     int start_mins;
     int duration_mins;
     int cal_index;   // 0-9, indexes into s_cal_color_idx
+    bool all_day;    // true for date-only VEVENT; never render as arc
 } CalEvent;
 
 // --- State ---------------------------------------------------
@@ -87,6 +90,9 @@ static bool   s_show_ticks     = true;
 static int s_cal_color_idx[MAX_CALENDARS] = { 0, 4, 8, 2, 9, 5, 1, 7, 10, 3 };
 static int s_hour_hand_color = 11;
 static int s_min_hand_color  = 11;
+static int s_hour_hand_style = 0; // 0: classic, 1: Minimalin
+static int s_min_hand_style  = 0; // 0: classic, 1: Minimalin, 2: rainbow
+static GBitmap *s_rainbow_bitmap;
 static bool s_overlay_above_hands = false; // default: UNDER hands
 
 static bool s_show_seconds = true;
@@ -210,7 +216,7 @@ static bool compute_show_shadow(GRect bounds, GPoint centre,
 
     for (int i = 0; i < s_event_count; i++) {
         CalEvent *ev = &s_events[i];
-        if (ev->duration_mins <= 0) continue;
+        if (ev->all_day || ev->duration_mins <= 0) continue;
         int start = ev->start_mins;
         int end   = ev->start_mins + ev->duration_mins;
         start = start % 720;
@@ -407,6 +413,66 @@ static void draw_weather_icon(GContext *ctx, int code, int ox, int oy, bool shad
     else if (code >= 95 && code <= 99)  draw_thunder(ctx, ox, oy, shadow);
 }
 
+
+/* Original Minimalin Reborn hand dimensions, scaled for the watch size.
+ * The rainbow-hand image uses the original Minimalin rotation pivot. */
+static void draw_clock_hands(GContext *ctx, GPoint centre,
+                             int hour_angle, int min_angle, int sec_angle,
+                             int hour_len, int min_len, int clock_radius,
+                             bool is_round) {
+    const int hour_width = s_hour_hand_style == 1 ? (is_round ? 6 : 8) : 5;
+    const int min_width  = s_min_hand_style == 1 ? (is_round ? 6 : 8) : 3;
+    GPoint tip_hour = GPoint(
+        centre.x + sin_lookup(DEG_TO_TRIGANGLE(hour_angle)) * hour_len / TRIG_MAX_RATIO,
+        centre.y - cos_lookup(DEG_TO_TRIGANGLE(hour_angle)) * hour_len / TRIG_MAX_RATIO);
+    GPoint tip_min = GPoint(
+        centre.x + sin_lookup(DEG_TO_TRIGANGLE(min_angle)) * min_len / TRIG_MAX_RATIO,
+        centre.y - cos_lookup(DEG_TO_TRIGANGLE(min_angle)) * min_len / TRIG_MAX_RATIO);
+
+    // Draw the minute hand first to keep the hour hand on top.
+    if (s_min_hand_style == 2 && s_rainbow_bitmap) {
+        graphics_context_set_compositing_mode(ctx, GCompOpSet);
+        graphics_draw_rotated_bitmap(ctx, s_rainbow_bitmap,
+                                     GPoint(5, is_round ? 55 : 81),
+                                     DEG_TO_TRIGANGLE(min_angle), centre);
+    } else {
+        graphics_context_set_stroke_color(ctx, palette_color(s_min_hand_color));
+        graphics_context_set_stroke_width(ctx, min_width);
+        graphics_draw_line(ctx, centre, tip_min);
+        if (s_min_hand_style == 1) {
+            graphics_context_set_fill_color(ctx, palette_color(s_min_hand_color));
+            graphics_fill_circle(ctx, tip_min, min_width / 2);
+        }
+    }
+
+    graphics_context_set_stroke_color(ctx, palette_color(s_hour_hand_color));
+    graphics_context_set_stroke_width(ctx, hour_width);
+    graphics_draw_line(ctx, centre, tip_hour);
+    if (s_hour_hand_style == 1) {
+        graphics_context_set_fill_color(ctx, palette_color(s_hour_hand_color));
+        graphics_fill_circle(ctx, tip_hour, hour_width / 2);
+    }
+
+    if (s_hour_hand_style == 1 || s_min_hand_style != 0) {
+        graphics_context_set_fill_color(ctx,
+            s_min_hand_style == 2 ? GColorVividViolet : palette_color(s_hour_hand_color));
+        graphics_fill_circle(ctx, centre, is_round ? 5 : 7);
+    } else {
+        graphics_context_set_fill_color(ctx, palette_color(s_min_hand_color));
+        graphics_fill_rect(ctx, GRect(centre.x - 3, centre.y - 3, 6, 6), 0, GCornerNone);
+    }
+
+    if (s_show_seconds) {
+        const int sec_len = clock_radius - 6;
+        GPoint tip_sec = GPoint(
+            centre.x + sin_lookup(DEG_TO_TRIGANGLE(sec_angle)) * sec_len / TRIG_MAX_RATIO,
+            centre.y - cos_lookup(DEG_TO_TRIGANGLE(sec_angle)) * sec_len / TRIG_MAX_RATIO);
+        graphics_context_set_stroke_color(ctx, GColorRed);
+        graphics_context_set_stroke_width(ctx, 1);
+        graphics_draw_line(ctx, centre, tip_sec);
+    }
+}
+
 // --- Canvas draw ---------------------------------------------
 static void canvas_update_proc(Layer *layer, GContext *ctx) {
     GRect   bounds = layer_get_bounds(layer);
@@ -436,11 +502,13 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
       s_events[0].start_mins    = 11*60;
       s_events[0].duration_mins = 90;
       s_events[0].cal_index     = 0;
+      s_events[0].all_day       = false;
   
       // 3:00 → 4:00 (Red)
       s_events[1].start_mins    = 180;
       s_events[1].duration_mins = 60;
       s_events[1].cal_index     = 1;
+      s_events[1].all_day       = false;
   
       s_cal_color_idx[0] = 3; // Blue
       s_cal_color_idx[1] = 7; // Red
@@ -461,6 +529,11 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
         hour_len = clock_radius * 9 / 10;
         min_len  = clock_radius;
     }
+
+    // Keep weather-overlay collision checking consistent with hand geometry.
+    if (s_hour_hand_style == 1) hour_len = clock_radius * 47 / 100;
+    if (s_min_hand_style == 1) min_len = clock_radius * 63 / 100;
+    if (s_min_hand_style == 2) min_len = is_round ? 55 : 81;
 
     int weather_x = (centre.x + (bounds.size.w - centre.x) / 2) - 5;
     int weather_y = centre.y - 11;
@@ -519,7 +592,7 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
     
     for (int i = 0; i < s_event_count; i++) {
         CalEvent *ev = &s_events[i];
-        if (ev->duration_mins <= 0) continue;
+        if (ev->all_day || ev->duration_mins <= 0) continue;
     
         int raw_start = ev->start_mins;
         int raw_end   = ev->start_mins + ev->duration_mins;
@@ -582,40 +655,8 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
     // ===============================
     if (s_overlay_above_hands) {
   
-      // -- Hour hand ---------------------------------------------
-      graphics_context_set_stroke_color(ctx, palette_color(s_hour_hand_color));
-      graphics_context_set_stroke_width(ctx, 5);
-      GPoint tip_hour = GPoint(
-          centre.x + sin_lookup(DEG_TO_TRIGANGLE(hour_angle)) * hour_len / TRIG_MAX_RATIO,
-          centre.y - cos_lookup(DEG_TO_TRIGANGLE(hour_angle)) * hour_len / TRIG_MAX_RATIO);
-      graphics_draw_line(ctx, centre, tip_hour);
-  
-      // -- Minute hand -------------------------------------------
-      graphics_context_set_stroke_color(ctx, palette_color(s_min_hand_color));
-      graphics_context_set_stroke_width(ctx, 3);
-      GPoint tip_min = GPoint(
-          centre.x + sin_lookup(DEG_TO_TRIGANGLE(min_angle)) * min_len / TRIG_MAX_RATIO,
-          centre.y - cos_lookup(DEG_TO_TRIGANGLE(min_angle)) * min_len / TRIG_MAX_RATIO);
-      graphics_draw_line(ctx, centre, tip_min);
-  
-      graphics_context_set_fill_color(ctx, palette_color(s_min_hand_color));
-      graphics_fill_rect(ctx, GRect(centre.x - 3, centre.y - 3, 6, 6), 0, GCornerNone);
-   
-      // -- Second hand -------------------------------------------
-      if (s_show_seconds) {
-      
-          int sec_len = clock_radius - 6;
-      
-          graphics_context_set_stroke_color(ctx, GColorRed);
-          graphics_context_set_stroke_width(ctx, 1);
-      
-          GPoint tip_sec = GPoint(
-              centre.x + sin_lookup(DEG_TO_TRIGANGLE(sec_angle)) * sec_len / TRIG_MAX_RATIO,
-              centre.y - cos_lookup(DEG_TO_TRIGANGLE(sec_angle)) * sec_len / TRIG_MAX_RATIO
-          );
-      
-          graphics_draw_line(ctx, centre, tip_sec);
-      }  
+      draw_clock_hands(ctx, centre, hour_angle, min_angle, sec_angle,
+                       hour_len, min_len, clock_radius, is_round);
     }
 
     // -- Battery -------------------------------------------
@@ -792,40 +833,8 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
   
     if (!s_overlay_above_hands) {
   
-      // -- Hour hand ---------------------------------------------
-      graphics_context_set_stroke_color(ctx, palette_color(s_hour_hand_color));
-      graphics_context_set_stroke_width(ctx, 5);
-      GPoint tip_hour = GPoint(
-          centre.x + sin_lookup(DEG_TO_TRIGANGLE(hour_angle)) * hour_len / TRIG_MAX_RATIO,
-          centre.y - cos_lookup(DEG_TO_TRIGANGLE(hour_angle)) * hour_len / TRIG_MAX_RATIO);
-      graphics_draw_line(ctx, centre, tip_hour);
-  
-      // -- Minute hand -------------------------------------------
-      graphics_context_set_stroke_color(ctx, palette_color(s_min_hand_color));
-      graphics_context_set_stroke_width(ctx, 3);
-      GPoint tip_min = GPoint(
-          centre.x + sin_lookup(DEG_TO_TRIGANGLE(min_angle)) * min_len / TRIG_MAX_RATIO,
-          centre.y - cos_lookup(DEG_TO_TRIGANGLE(min_angle)) * min_len / TRIG_MAX_RATIO);
-      graphics_draw_line(ctx, centre, tip_min);
-  
-      graphics_context_set_fill_color(ctx, palette_color(s_min_hand_color));
-      graphics_fill_rect(ctx, GRect(centre.x - 3, centre.y - 3, 6, 6), 0, GCornerNone);
-   
-      // -- Second hand -------------------------------------------
-      if (s_show_seconds) {
-      
-          int sec_len = clock_radius - 6;
-      
-          graphics_context_set_stroke_color(ctx, GColorRed);
-          graphics_context_set_stroke_width(ctx, 1);
-      
-          GPoint tip_sec = GPoint(
-              centre.x + sin_lookup(DEG_TO_TRIGANGLE(sec_angle)) * sec_len / TRIG_MAX_RATIO,
-              centre.y - cos_lookup(DEG_TO_TRIGANGLE(sec_angle)) * sec_len / TRIG_MAX_RATIO
-          );
-      
-          graphics_draw_line(ctx, centre, tip_sec);
-      }  
+      draw_clock_hands(ctx, centre, hour_angle, min_angle, sec_angle,
+                       hour_len, min_len, clock_radius, is_round);
     }
   
    
@@ -847,10 +856,11 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
         snprintf(time_buf, sizeof(time_buf), "%02d:%02d", h, m);
     
         char buf[64];
-        snprintf(buf, sizeof(buf),
-                 "%s %s",
-                 time_buf,
-                 s_event_text[i]);
+        if (i < s_event_count && s_events[i].all_day) {
+            snprintf(buf, sizeof(buf), "All day: %s", s_event_text[i]);
+        } else {
+            snprintf(buf, sizeof(buf), "%s %s", time_buf, s_event_text[i]);
+        }
     
         int event_cal = s_event_cal[i];
         if (event_cal < 0 || event_cal >= MAX_CALENDARS)
@@ -905,6 +915,13 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
             int sm = parse_int(&p); if (*p == ',') p++;
             int dm = parse_int(&p); if (*p == ',') p++;
             int ci = parse_int(&p);
+            bool all_day = false;
+            // Optional fourth value; older phone apps still send three values.
+            if (*p == ',') {
+                p++;
+                all_day = parse_int(&p) != 0;
+            }
+            s_events[s_event_count].all_day       = all_day;
             s_events[s_event_count].start_mins    = sm;
             s_events[s_event_count].duration_mins = dm;
             s_events[s_event_count].cal_index     = ci;
@@ -919,8 +936,6 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
     Tuple *wc = dict_find(iter, KEY_WEATHER_CODE);
     if (wc) s_weather_code = wc->value->int32;
 
-    layer_mark_dirty(s_canvas_layer);
-  
     Tuple *mh = dict_find(iter, KEY_MIN_HAND_COLOR);
     if (mh) s_min_hand_color = (int)mh->value->int32;
     
@@ -951,6 +966,13 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
     Tuple *ov = dict_find(iter, KEY_OVERLAY_ABOVE_HANDS);
     if (ov) s_overlay_above_hands = (ov->value->int32 != 0);
 
+    Tuple *hs = dict_find(iter, KEY_HOUR_HAND_STYLE);
+    if (hs) s_hour_hand_style = hs->value->int32 == 1 ? 1 : 0;
+    Tuple *ms = dict_find(iter, KEY_MIN_HAND_STYLE);
+    if (ms) s_min_hand_style = (ms->value->int32 >= 0 && ms->value->int32 <= 2)
+                                ? ms->value->int32 : 0;
+    layer_mark_dirty(s_canvas_layer);
+
 }
 
 static void inbox_dropped_handler(AppMessageResult reason, void *context) {
@@ -980,6 +1002,7 @@ static void init(void) {
     s_events[0].start_mins = 14 * 60;
     s_events[0].duration_mins = 60;
     s_events[0].cal_index = 0;
+    s_events[0].all_day = false;
     
     snprintf(s_event_text[0], sizeof(s_event_text[0]),
            "A veeeery long and boring Meeting that takes the whole day");
@@ -989,6 +1012,7 @@ static void init(void) {
     s_events[1].start_mins = 15.5 * 60;
     s_events[1].duration_mins = 120;
     s_events[1].cal_index = 1;
+    s_events[1].all_day = false;
     
     snprintf(s_event_text[1], sizeof(s_event_text[1]),
            "Workout");
@@ -998,6 +1022,7 @@ static void init(void) {
     s_events[2].start_mins = 7 * 60;
     s_events[2].duration_mins =300;
     s_events[2].cal_index = 2;
+    s_events[2].all_day = false;
     
     snprintf(s_event_text[2], sizeof(s_event_text[2]),
            "Coffee");
@@ -1007,10 +1032,12 @@ static void init(void) {
     s_events[3].start_mins = 12 * 60;
     s_events[3].duration_mins = 45;
     s_events[3].cal_index = 3;
+    s_events[3].all_day = false;
     
     #endif
     s_small_font = fonts_get_system_font(FONT_KEY_GOTHIC_18);
     s_date_font  = fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD);
+    s_rainbow_bitmap = gbitmap_create_with_resource(RESOURCE_ID_IMG_RAINBOW_HAND);
     s_window = window_create();
     window_set_window_handlers(s_window, (WindowHandlers){
         .load   = window_load,
@@ -1031,6 +1058,7 @@ static void init(void) {
 static void deinit(void) {
     tick_timer_service_unsubscribe();
     window_destroy(s_window);
+    gbitmap_destroy(s_rainbow_bitmap);
     battery_state_service_unsubscribe();
 }
 
