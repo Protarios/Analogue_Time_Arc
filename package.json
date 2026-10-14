@@ -76,7 +76,9 @@
             "RightComplication": 68,
             "TopComplication": 69,
             "BatteryStyle": 70,
-            "TickMode": 71
+            "TickMode": 71,
+            "ArcEndStyle": 72,
+            "ArcColorMode": 73
         },
         "projectType": "native",
         "resources": {
@@ -119,5 +121,5 @@
             "watchface": true
         }
     },
-    "version": "1.14.1"
+    "version": "1.15.0"
 }

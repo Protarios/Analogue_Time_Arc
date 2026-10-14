@@ -49,3 +49,8 @@ Run the JavaScript regression tests with `npm test` (Node.js). The Pebble SDK/de
 Steps (today's total) and filtered heart rate (BPM) are selectable in any of the three complication slots, with small footprints/heart icons above their values. Requires Pebble Health permission and supported hardware. If data are unavailable, the measurement is shown as “--”. Health data refresh through HealthService events and at minute boundaries without additional high-frequency sensor sampling.
 
 Weather now shows both temperature and weather icons on either left or right side. Left/right side complications are raised to align visually with the 3/9-o'clock positions. Seconds-based redraws occur only when the seconds hand or a seconds complication is selected; otherwise minute cadence is used.
+
+
+### 1.15.0 — Calendar arc styles
+
+Settings → Calendar arcs provides two independent selectors: **rounded (original)** or **exact flat ends**, combined with **calendar color (original)**, **stable random color per appointment**, or **shades of that appointment's calendar color**. The sharp mode derives angles from actual start/end minutes, without the visible overhang caused by rounded caps. Randomization uses a compact, deterministic seed derived from appointment identity; the color does not change at each redraw. Old settings and appointment packets default to the original rendering.

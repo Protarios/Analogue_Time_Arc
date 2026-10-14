@@ -76,7 +76,7 @@ const schemaPalette = ["00FFAA","55FF00","00FFFF","0055FF","AAAAFF","AA00FF","FF
 const fields = itemsFromSchema(schema).filter(item => item.messageKey);
 
 test('Clay defines all existing settings and exactly 10 full calendar entries', () => {
-  assert.equal(fields.length, 50);
+  assert.equal(fields.length, 52);
   const keys = fields.map(item => item.messageKey);
   assert.equal(new Set(keys).size, keys.length);
   for (let i = 0; i < 10; ++i) {
@@ -463,4 +463,72 @@ test('seconds complications force second tick even if seconds hand is hidden', (
   assert.ok(src.includes('s_complication_right == COMP_SECONDS'));
   assert.ok(src.includes('s_complication_top == COMP_SECONDS'));
   assert.ok(src.includes('needs_seconds ? SECOND_UNIT : MINUTE_UNIT'));
+});
+
+test('new arc styles default to the prior rounded/calendar-colored rendering', () => {
+  const e=fields.find(x=>x.messageKey==='ArcEndStyle');
+  const c=fields.find(x=>x.messageKey==='ArcColorMode');
+  assert.equal(e.defaultValue,'0');
+  assert.equal(c.defaultValue,'0');
+  assert.deepEqual(e.options.map(x=>x.value),['0','1']);
+  assert.deepEqual(c.options.map(x=>x.value),['0','1','2']);
+  const app=sandbox({color0:4});
+  app.events.showConfiguration();
+  assert.equal(app.clay.settings.ArcEndStyle,'0');
+  assert.equal(app.clay.settings.ArcColorMode,'0');
+  const settings={};
+  for(const field of fields)settings[field.messageKey]={value:app.clay.settings[field.messageKey]??field.defaultValue};
+  settings.ArcEndStyle.value='1';
+  settings.ArcColorMode.value='2';
+  app.events.webviewclosed({response:JSON.stringify(settings)});
+  const saved=JSON.parse(app.memory.get('calendarConfig'));
+  assert.equal(saved.arcEndStyle,1);
+  assert.equal(saved.arcColorMode,2);
+  assert.equal(saved.color0,4);
+  assert.equal(app.sent[0][72],1);
+  assert.equal(app.sent[0][73],2);
+  assert.equal(app.sent[0][13].split(',')[0],4);
+});
+
+test('stable event seed identifies appointments independently from their order', () => {
+  const app=sandbox({});
+  const e={startTime:1791900000000,endTime:1791903600000,
+    calIndex:3,title:'Lecture',startMins:450,durationMins:60};
+  const other={...e,title:'Other appointment'};
+  assert.equal(app.context.eventColorSeed(e),app.context.eventColorSeed({...e}));
+  assert.notEqual(app.context.eventColorSeed(e),app.context.eventColorSeed(other));
+  app.context.sendEventsToWatch([e,other]);
+  const rows=app.sent[0][5].split('|');
+  assert.equal(rows.length,2);
+  for(const row of rows) {
+    assert.equal(row.split(',').length,6);
+    assert.match(row.split(',')[5],/^\\d{1,3}$/);
+  }
+  assert.equal(Number(rows[0].split(',')[5]),app.context.eventColorSeed(e));
+});
+
+test('sharp calendar arcs have exact half-minute sampled flat end boundaries', () => {
+  const source=fs.readFileSync(path.join(root,'src/c/watchface.c'),'utf8');
+  assert.ok(source.includes('s_arc_end_style == 1'));
+  assert.ok(source.includes('half_minute = start_min * 2'));
+  assert.ok(source.includes('half_minute <= end_min * 2'));
+  assert.ok(source.includes('half_minute * TRIG_MAX_ANGLE / 1440'));
+  assert.ok(source.includes('perimeter_point_at_angle(bounds, stroke_width, angle)'));
+  assert.ok(source.includes('graphics_context_set_stroke_width(ctx, 1)'));
+  assert.ok(source.includes('start, 720'));
+  assert.ok(source.includes('0, end'));
+  assert.ok(!source.includes('#define DRAW_ARC_SEGMENT'));
+});
+
+test('three arc coloring modes keep original palette and support stable variants', () => {
+  const source=fs.readFileSync(path.join(root,'src/c/watchface.c'),'utf8');
+  assert.ok(source.includes('s_arc_color_mode == 1'));
+  assert.ok(source.includes('s_arc_color_mode != 2'));
+  assert.ok(source.includes('ev->color_seed % 12'));
+  assert.ok(source.includes('ev->color_seed % 3'));
+  assert.ok(source.includes('s_cal_color_idx[calendar_idx]'));
+  assert.ok(source.includes('KEY_ARC_END_STYLE'));
+  assert.ok(source.includes('KEY_ARC_COLOR_MODE'));
+  assert.ok(source.includes('(uint8_t)((sm * 31 + dm * 17 + ci * 13) & 0xFF)'));
+  assert.ok(source.includes('s_events[s_event_count].color_seed = (uint8_t)parse_int(&p)'));
 });

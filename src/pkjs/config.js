@@ -77,6 +77,21 @@ var config = [
       ] }
   ] },
   { type: 'section', items: [
+    { type: 'heading', defaultValue: 'Calendar arcs / Kalenderbögen' },
+    { type: 'select', messageKey: 'ArcEndStyle', label: 'Arc ends / Bogenenden',
+      defaultValue: '0', options: [
+        { value: '0', label: 'Rounded (original) / Abgerundet' },
+        { value: '1', label: 'Exact flat ends / Scharf und minutengenau' }
+      ] },
+    { type: 'select', messageKey: 'ArcColorMode', label: 'Arc colors / Bogenfarben',
+      defaultValue: '0', options: [
+        { value: '0', label: 'Calendar color / Kalenderfarbe' },
+        { value: '1', label: 'Stable random per event / Zufällig je Termin' },
+        { value: '2', label: 'Shades of calendar color / Kalenderfarbvarianten' }
+      ] },
+    { type: 'text', defaultValue: 'Random colors and calendar-color shades are assigned consistently to each appointment.' }
+  ] },
+  { type: 'section', items: [
     { type: 'heading', defaultValue: 'Complications / Komplikationen' },
     { type: 'select', messageKey: 'LeftComplication', label: 'Left / Links',
       defaultValue: '1', options: COMPLICATION_OPTIONS },

@@ -49,6 +49,8 @@
 #define KEY_COMPLICATION_TOP      69
 #define KEY_BATTERY_STYLE         70
 #define KEY_TICK_MODE             71
+#define KEY_ARC_END_STYLE         72
+#define KEY_ARC_COLOR_MODE        73
 #define COMP_EMPTY 0
 #define COMP_DATE 1
 #define COMP_BATTERY 2
@@ -102,6 +104,7 @@ typedef struct {
     int cal_index;   // 0-9, indexes into s_cal_color_idx
     bool all_day;    // true for date-only VEVENT; never render as arc
     int full_start_mins; // unwrapped 0-1439 minutes, for 24h event text
+    uint8_t color_seed; // stable identity-based per-appointment color seed
 } CalEvent;
 
 // --- State ---------------------------------------------------
@@ -120,6 +123,8 @@ static int    s_tick_mode      = 1;    // 0: none, 1: hours, 2: hours + minutes
 
 // Default colours spread across the palette for visual variety
 static int s_cal_color_idx[MAX_CALENDARS] = { 0, 4, 8, 2, 9, 5, 1, 7, 10, 3 };
+static int s_arc_end_style = 0;   // 0: original rounded, 1: precise flat end
+static int s_arc_color_mode = 0;  // 0: calendar, 1: random, 2: calendar shades
 static int s_hour_hand_color = 11;
 static int s_min_hand_color  = 11;
 static int s_tick_color      = 11; // formerly shared with minute hand
@@ -236,6 +241,23 @@ static GPoint perimeter_point(GRect bounds, int inset, int angle_deg) {
     const int32_t half_h = bounds.size.h / 2 - 1 - inset;
     const int32_t sn = sin_lookup(DEG_TO_TRIGANGLE(angle_deg));
     const int32_t cv = cos_lookup(DEG_TO_TRIGANGLE(angle_deg));
+    const int32_t abs_sn = sn < 0 ? -sn : sn;
+    const int32_t abs_cv = cv < 0 ? -cv : cv;
+    int32_t radius_x = abs_sn ? half_w * TRIG_MAX_RATIO / abs_sn : INT32_MAX;
+    int32_t radius_y = abs_cv ? half_h * TRIG_MAX_RATIO / abs_cv : INT32_MAX;
+    int32_t radius = radius_x < radius_y ? radius_x : radius_y;
+    const int cx = bounds.origin.x + bounds.size.w / 2;
+    const int cy = bounds.origin.y + bounds.size.h / 2;
+    return GPoint(cx + sn * radius / TRIG_MAX_RATIO,
+                  cy - cv * radius / TRIG_MAX_RATIO);
+}
+
+// Sub-degree perimeter intersection for exact minute boundaries.
+static GPoint perimeter_point_at_angle(GRect bounds, int inset, int32_t angle) {
+    const int32_t half_w = bounds.size.w / 2 - 1 - inset;
+    const int32_t half_h = bounds.size.h / 2 - 1 - inset;
+    const int32_t sn = sin_lookup(angle);
+    const int32_t cv = cos_lookup(angle);
     const int32_t abs_sn = sn < 0 ? -sn : sn;
     const int32_t abs_cv = cv < 0 ? -cv : cv;
     int32_t radius_x = abs_sn ? half_w * TRIG_MAX_RATIO / abs_sn : INT32_MAX;
@@ -893,6 +915,100 @@ static void draw_complication_text(GContext *ctx, GRect area, int type,
         GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
 }
 
+// Per-event colors are derived from a stable small seed, never from
+// a redraw-time random-number generator.
+static GColor event_arc_color(const CalEvent *ev, int calendar_idx) {
+    GColor base = palette_color(s_cal_color_idx[calendar_idx]);
+    if (s_arc_color_mode == 1) {
+        // Avoid near-black entries for legibility on the black background.
+        static const uint8_t vivid_colors[12] =
+            { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15 };
+        return palette_color(vivid_colors[ev->color_seed % 12]);
+    }
+    if (s_arc_color_mode != 2) return base;
+
+    int shade = ev->color_seed % 3;
+    if (shade == 0) return base;
+    int r = (base.argb >> 4) & 3;
+    int g = (base.argb >> 2) & 3;
+    int b = base.argb & 3;
+    if (r == g && g == b) {
+        // White, light gray and dark gray retain neutral alternatives.
+        int gray = r;
+        if (shade == 1) gray = gray >= 3 ? 2 : gray + 1;
+        else gray = gray <= 1 ? 3 : gray - 1;
+        r = g = b = gray;
+    } else if (shade == 1) {
+        r = MIN(3, r + 1);
+        g = MIN(3, g + 1);
+        b = MIN(3, b + 1);
+    } else {
+        r = r > 1 ? r - 1 : r;
+        g = g > 1 ? g - 1 : g;
+        b = b > 1 ? b - 1 : b;
+    }
+    return (GColor){ .argb = (uint8_t)(0xC0 | (r << 4) | (g << 2) | b) };
+}
+
+// The rounded path is preserved from the previous watchface.
+// For precise ends, the ring consists of 1px radial strokes whose first
+// and last strokes create a flat cut at the exact minute angle.
+// Half-minute angular sampling provides contiguous pixels on square dials.
+static void draw_calendar_arc_segment(GContext *ctx, GRect bounds, GPoint centre,
+                                      int clock_radius, bool is_round,
+                                      int stroke_width, int start_min, int end_min) {
+    if (start_min >= end_min) return;
+
+    if (s_arc_end_style == 1) {
+        graphics_context_set_stroke_width(ctx, 1);
+        for (int half_minute = start_min * 2;
+             half_minute <= end_min * 2; ++half_minute) {
+            int32_t angle = (int32_t)half_minute * TRIG_MAX_ANGLE / 1440;
+            GPoint inner, outer;
+            if (is_round) {
+                const int arc_radius = clock_radius + stroke_width;
+                const int inner_radius = arc_radius - stroke_width / 2;
+                const int outer_radius = arc_radius + stroke_width / 2;
+                int32_t sn = sin_lookup(angle), cv = cos_lookup(angle);
+                inner = GPoint(centre.x + sn * inner_radius / TRIG_MAX_RATIO,
+                               centre.y - cv * inner_radius / TRIG_MAX_RATIO);
+                outer = GPoint(centre.x + sn * outer_radius / TRIG_MAX_RATIO,
+                               centre.y - cv * outer_radius / TRIG_MAX_RATIO);
+            } else {
+                outer = perimeter_point_at_angle(bounds, 0, angle);
+                inner = perimeter_point_at_angle(bounds, stroke_width, angle);
+            }
+            graphics_draw_line(ctx, inner, outer);
+        }
+        return;
+    }
+
+    // Original 8px stroke including its rounded end caps.
+    graphics_context_set_stroke_width(ctx, stroke_width);
+    const int start_deg = start_min * 360 / 720;
+    const int end_deg = end_min * 360 / 720;
+    if (is_round) {
+        const int arc_radius = clock_radius + stroke_width;
+        for (int deg = start_deg; deg < end_deg; deg += 3) {
+            int d2 = (deg + 3 < end_deg) ? deg + 3 : end_deg;
+            GPoint p1 = GPoint(
+                centre.x + sin_lookup(DEG_TO_TRIGANGLE(deg)) * arc_radius / TRIG_MAX_RATIO,
+                centre.y - cos_lookup(DEG_TO_TRIGANGLE(deg)) * arc_radius / TRIG_MAX_RATIO);
+            GPoint p2 = GPoint(
+                centre.x + sin_lookup(DEG_TO_TRIGANGLE(d2)) * arc_radius / TRIG_MAX_RATIO,
+                centre.y - cos_lookup(DEG_TO_TRIGANGLE(d2)) * arc_radius / TRIG_MAX_RATIO);
+            graphics_draw_line(ctx, p1, p2);
+        }
+    } else {
+        const int inset = stroke_width / 2;
+        for (int deg = start_deg; deg < end_deg; ++deg) {
+            int d2 = (deg + 1 < end_deg) ? deg + 1 : end_deg;
+            graphics_draw_line(ctx, perimeter_point(bounds, inset, deg),
+                                    perimeter_point(bounds, inset, d2));
+        }
+    }
+}
+
 static void canvas_update_proc(Layer *layer, GContext *ctx) {
     GRect   bounds = layer_get_bounds(layer);
     GPoint  centre = GPoint(bounds.size.w / 2, bounds.size.h / 2);
@@ -1020,68 +1136,32 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
     }
 
     // -- Calendar arc ring -------------------------------------
-    int arc_stroke = 8;
-    
-    for (int i = 0; i < s_event_count; i++) {
-        CalEvent *ev = &s_events[i];
+    const int arc_stroke = 8;
+    for (int i = 0; i < s_event_count; ++i) {
+        const CalEvent *ev = &s_events[i];
         if (ev->all_day || ev->duration_mins <= 0) continue;
-    
-        int raw_start = ev->start_mins;
-        int raw_end   = ev->start_mins + ev->duration_mins;
-    
-        // Normalize to 12-hour dial (0–720)
-        int start = raw_start % 720;
-        int end   = raw_end   % 720;
-    
-        bool wraps = (raw_end - raw_start) >= 720 ? true : (end < start);
-    
+
+        const int raw_start = ev->start_mins;
+        const int raw_end = ev->start_mins + ev->duration_mins;
+        const int start = raw_start % 720;
+        const int end = raw_end % 720;
+        const bool wraps = (raw_end - raw_start) >= 720 || end < start;
+
         int ci = ev->cal_index;
         if (ci < 0 || ci >= MAX_CALENDARS) ci = 0;
-    
-        GColor color = palette_color(s_cal_color_idx[ci]);
-        graphics_context_set_stroke_color(ctx, color);
-        graphics_context_set_stroke_width(ctx, arc_stroke);
-    
-        // Helper to draw a segment
-        #define DRAW_ARC_SEGMENT(seg_start, seg_end) \
-            do { \
-                int start_deg = (seg_start) * 360 / 720; \
-                int end_deg   = (seg_end)   * 360 / 720; \
-                if (is_round) { \
-                    int arc_radius = clock_radius + arc_stroke; \
-                    for (int deg = start_deg; deg < end_deg; deg += 3) { \
-                        int d2 = (deg + 3 < end_deg) ? deg + 3 : end_deg; \
-                        GPoint p1 = GPoint( \
-                            centre.x + sin_lookup(DEG_TO_TRIGANGLE(deg)) * arc_radius / TRIG_MAX_RATIO, \
-                            centre.y - cos_lookup(DEG_TO_TRIGANGLE(deg)) * arc_radius / TRIG_MAX_RATIO); \
-                        GPoint p2 = GPoint( \
-                            centre.x + sin_lookup(DEG_TO_TRIGANGLE(d2)) * arc_radius / TRIG_MAX_RATIO, \
-                            centre.y - cos_lookup(DEG_TO_TRIGANGLE(d2)) * arc_radius / TRIG_MAX_RATIO); \
-                        graphics_draw_line(ctx, p1, p2); \
-                    } \
-                } else { \
-                    int inset = arc_stroke / 2; \
-                    for (int deg = start_deg; deg < end_deg; deg += 1) { \
-                        int d2 = (deg + 1 < end_deg) ? deg + 1 : end_deg; \
-                        GPoint p1 = perimeter_point(bounds, inset, deg); \
-                        GPoint p2 = perimeter_point(bounds, inset, d2); \
-                        graphics_draw_line(ctx, p1, p2); \
-                    } \
-                } \
-            } while (0)
-    
+        graphics_context_set_stroke_color(ctx, event_arc_color(ev, ci));
+
         if (!wraps) {
-            // Normal case
-            DRAW_ARC_SEGMENT(start, end);
+            draw_calendar_arc_segment(ctx, bounds, centre, clock_radius,
+                                      is_round, arc_stroke, start, end);
         } else {
-            // Wraps past 12 → split into two arcs
-            DRAW_ARC_SEGMENT(start, 720);
-            DRAW_ARC_SEGMENT(0, end);
+            draw_calendar_arc_segment(ctx, bounds, centre, clock_radius,
+                                      is_round, arc_stroke, start, 720);
+            draw_calendar_arc_segment(ctx, bounds, centre, clock_radius,
+                                      is_round, arc_stroke, 0, end);
         }
-    
-        #undef DRAW_ARC_SEGMENT
     }
-  
+
     // ===============================
     // OVERLAY (BEFORE HANDS = UNDER)
     // ===============================
@@ -1211,6 +1291,14 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
                 p++;
                 s_events[s_event_count].full_start_mins = parse_int(&p);
             }
+            // The sixth field is optional; old packets retain deterministic
+            // fallbacks derived from time, duration and calendar index.
+            s_events[s_event_count].color_seed =
+                (uint8_t)((sm * 31 + dm * 17 + ci * 13) & 0xFF);
+            if (*p == ',') {
+                p++;
+                s_events[s_event_count].color_seed = (uint8_t)parse_int(&p);
+            }
             s_event_count++;
             if (*p == '|') p++; else break;
         }
@@ -1221,6 +1309,15 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
 
     Tuple *wc = dict_find(iter, KEY_WEATHER_CODE);
     if (wc) s_weather_code = wc->value->int32;
+
+    Tuple *arc_ends = dict_find(iter, KEY_ARC_END_STYLE);
+    if (arc_ends && arc_ends->value->int32 >= 0 &&
+        arc_ends->value->int32 <= 1)
+        s_arc_end_style = (int)arc_ends->value->int32;
+    Tuple *arc_colors = dict_find(iter, KEY_ARC_COLOR_MODE);
+    if (arc_colors && arc_colors->value->int32 >= 0 &&
+        arc_colors->value->int32 <= 2)
+        s_arc_color_mode = (int)arc_colors->value->int32;
 
     Tuple *tc = dict_find(iter, KEY_TICK_COLOR);
     if (tc) s_tick_color = (int)tc->value->int32;

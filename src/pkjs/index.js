@@ -93,6 +93,8 @@ function legacyToClay(config) {
         RightComplication: String(migrationSlot(config, 'rightComplication', 3)),
         TopComplication: String(migrationSlot(config, 'topComplication', 2)),
         TickMode: String(tickMode(config)),
+        ArcEndStyle: String(validOption(config.arcEndStyle, 0, 1)),
+        ArcColorMode: String(validOption(config.arcColorMode, 0, 2)),
         ShowSeconds: config.showSeconds !== false,
         OverlayAboveHands: config.overlayAboveHands === true,
         BatteryStyle: String(batteryStyle(config.batteryStyle)),
@@ -140,6 +142,10 @@ function clayToLegacy(settings, previous) {
         migrationSlot(config,'topComplication',2)), 2);
     config.tickMode = validOption(clayValue(settings, 'TickMode',
         tickMode(config)), tickMode(config), 2);
+    config.arcEndStyle = validOption(clayValue(settings, 'ArcEndStyle',
+        config.arcEndStyle == null ? 0 : config.arcEndStyle), 0, 1);
+    config.arcColorMode = validOption(clayValue(settings, 'ArcColorMode',
+        config.arcColorMode == null ? 0 : config.arcColorMode), 0, 2);
     config.showTicks = config.tickMode !== 0; // preserve legacy callers
     config.showSeconds = !!clayValue(settings, 'ShowSeconds', true);
     config.overlayAboveHands = !!clayValue(settings, 'OverlayAboveHands', false);
@@ -569,6 +575,8 @@ function sendDisplaySettings() {
         8:  tickMode(config) !== 0 ? 1 : 0,
         71: tickMode(config),
         70: batteryStyle(config.batteryStyle),
+        72: validOption(config.arcEndStyle, 0, 1),
+        73: validOption(config.arcColorMode, 0, 2),
         12: typeof config.hourColor === "number" ? config.hourColor : 11,
         13: packedColors,
         14: typeof config.minuteColor === "number" ? config.minuteColor : 11,
@@ -636,6 +644,19 @@ function refreshPriorityLocation() {
 
 // ─── Send events ─────────────────────────────────────────────────────────────
 
+// Identity-based pseudo-random seed, stable across redraws and resorting.
+function eventColorSeed(event) {
+    var identity = String(event.startTime == null ? '' : event.startTime) + '|' +
+        String(event.endTime == null ? '' : event.endTime) + '|' +
+        String(event.calIndex == null ? '' : event.calIndex) + '|' +
+        String(event.title || '');
+    var hash = 5381;
+    for (var i = 0; i < identity.length; i++) {
+        hash = ((hash * 33) ^ identity.charCodeAt(i)) & 0xFFFF;
+    }
+    return hash & 0xFF; // only one to three decimal digits in the wire packet
+}
+
 function sendEventsToWatch(events) {
 
     var now = new Date();
@@ -664,7 +685,9 @@ function sendEventsToWatch(events) {
 
     var packed = events.map(function(e) {
         return e.startMins + "," + e.durationMins + "," + e.calIndex + "," +
-               (e.allDay ? 1 : 0) + "," + (e.fullStartMins == null ? e.startMins : e.fullStartMins);
+               (e.allDay ? 1 : 0) + "," +
+               (e.fullStartMins == null ? e.startMins : e.fullStartMins) + "," +
+               eventColorSeed(e);
     }).join("|");
 
     var next = events.slice(0, 3);
