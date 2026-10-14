@@ -500,6 +500,41 @@ function sendDisplaySettings() {
     });
 }
 
+// ─── Event-location priority window ─────────────────────────────────────────
+var s_last_location_events = [];
+var s_last_location_sent = null;
+
+function currentPriorityLocation(now) {
+    var timestamp = now.getTime();
+    var windowMs = 15 * 60 * 1000;
+    var candidates = s_last_location_events.filter(function(event) {
+        return !!event.location &&
+            timestamp >= event.startTime - windowMs &&
+            timestamp < event.startTime + windowMs;
+    });
+    // If appointments overlap, prioritize an already started one, then the
+    // nearest upcoming appointment.
+    candidates.sort(function(a, b) {
+        var aStarted = a.startTime <= timestamp;
+        var bStarted = b.startTime <= timestamp;
+        if (aStarted !== bStarted) return aStarted ? -1 : 1;
+        return Math.abs(a.startTime - timestamp) - Math.abs(b.startTime - timestamp);
+    });
+    return candidates.length ? candidates[0].location.substring(0, 80) : "";
+}
+
+function refreshPriorityLocation() {
+    var location = currentPriorityLocation(new Date());
+    if (location === s_last_location_sent) return;
+    s_last_location_sent = location;
+    Pebble.sendAppMessage({59: location}, function() {
+        console.log("Location priority: " + (location || "battery"));
+    }, function(err) {
+        console.log("Location priority update failed: " + JSON.stringify(err));
+        s_last_location_sent = null;
+    });
+}
+
 // ─── Send events ─────────────────────────────────────────────────────────────
 
 function sendEventsToWatch(events) {
@@ -519,12 +554,12 @@ function sendEventsToWatch(events) {
         return (a.startTime || 0) - (b.startTime || 0);
     });
 
-    // Only timed appointments contribute a location. Prefer currently ongoing
-    // appointment, otherwise the next upcoming. Never use a stale/all-day item.
-    var nextTimed = events.filter(function(event) {
-        return !event.allDay && event.endTime > now.getTime();
-    })[0];
-    var nextLocation = nextTimed && nextTimed.location ? nextTimed.location : "";
+    // Store appointments for the priority window: 15 minutes before until
+    // 15 minutes after the start. Re-evaluate once per minute without refetching.
+    s_last_location_events = events.filter(function(event) {
+        return !event.allDay && !!event.startTime;
+    });
+    var nextLocation = currentPriorityLocation(now);
 
     events = events.slice(0, 10);
 
@@ -546,9 +581,10 @@ function sendEventsToWatch(events) {
         18: next[0] ? next[0].calIndex : 0,
         19: next[1] ? next[1].calIndex : 0,
         20: next[2] ? next[2].calIndex : 0,
-        59: nextLocation.substring(0, 80)
+        59: nextLocation
     };
 
+    s_last_location_sent = nextLocation;
     console.log("Sending " + events.length + " events: " + packed);
 
     Pebble.sendAppMessage(msg,
@@ -665,6 +701,7 @@ Pebble.addEventListener("ready", function() {
 
     // Single consolidated interval: weather + calendars every 60 minutes
     setInterval(refreshAll, 60 * 60 * 1000);
+    setInterval(refreshPriorityLocation, 60 * 1000);
 });
 
 Pebble.addEventListener("showConfiguration", function() {
@@ -696,6 +733,7 @@ Pebble.addEventListener("webviewclosed", function(e) {
         sendDisplaySettings();
         refreshWeather(config);
         fetchAllCalendars();
+        refreshPriorityLocation();
     } catch (err) {
         console.log('Failed to parse Clay response: ' + err);
     }

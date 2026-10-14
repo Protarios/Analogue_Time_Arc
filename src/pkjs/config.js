@@ -24,7 +24,7 @@ var config = [
     { type: 'toggle', messageKey: 'ShowSeconds', label: 'Show seconds hand', defaultValue: true },
     { type: 'toggle', messageKey: 'OverlayAboveHands', label: 'Complications above hands', defaultValue: false },
     { type: 'toggle', messageKey: 'BatteryWarningOnly', label: 'Battery warning only (20%)', defaultValue: true },
-    { type: 'toggle', messageKey: 'ShowNextLocation', label: 'Show next appointment location', defaultValue: false }
+    { type: 'toggle', messageKey: 'ShowNextLocation', label: 'Show appointment location (15 min before/after start)', defaultValue: false }
   ] },
   { type: 'section', items: [
     { type: 'heading', defaultValue: 'Hour hand' },
@@ -33,7 +33,7 @@ var config = [
         { label: 'Classic (original)', value: '0' },
         { label: 'Minimalin (bold)', value: '1' }
       ] },
-    { type: 'select', messageKey: 'HourHandLength', label: 'Length', defaultValue: '0', options: [
+    { type: 'select', messageKey: 'HourHandLength', label: 'Hour hand length / Stundenzeigerlänge', defaultValue: '0', options: [
         { label: 'Short (previous bold length)', value: '0' },
         { label: 'Medium', value: '1' },
         { label: 'Long (near dial edge)', value: '2' }
@@ -48,7 +48,7 @@ var config = [
         { label: 'Minimalin (bold)', value: '1' },
         { label: 'Minimalin Rainbow', value: '2' }
       ] },
-    { type: 'select', messageKey: 'MinuteHandLength', label: 'Length', defaultValue: '0', options: [
+    { type: 'select', messageKey: 'MinuteHandLength', label: 'Minute hand length / Minutenzeigerlänge', defaultValue: '0', options: [
         { label: 'Short (previous bold length)', value: '0' },
         { label: 'Medium', value: '1' },
         { label: 'Long (near dial edge)', value: '2' }

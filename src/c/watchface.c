@@ -692,7 +692,8 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
         s_battery_percent <= 20 ||
         s_battery_charging;
     
-    if (show_battery) {
+    bool show_location = s_show_next_location && s_next_location[0] != '\0';
+    if (show_battery && !show_location) {
     
         char batt[16];
     
@@ -909,15 +910,15 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
         );
     }
 
-    // Optional next-appointment location, positioned between 12 and centre.
-    if (s_show_next_location && s_next_location[0] != '\0') {
+    // Shared upper dial slot: location overrides battery only in the
+    // fifteen-minute window calculated by the phone.
+    if (show_location) {
         char label[88];
         snprintf(label, sizeof(label), "Ort: %s", s_next_location);
+        int loc_y = centre.y - clock_radius + 18;
         graphics_context_set_text_color(ctx, s_text_color);
         graphics_draw_text(ctx, label, s_small_font,
-            GRect(centre.x - clock_radius * 4 / 5,
-                  centre.y - clock_radius * 2 / 3,
-                  clock_radius * 8 / 5, 44),
+            GRect(4, loc_y, bounds.size.w - 8, 38),
             GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
     }
 }

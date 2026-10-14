@@ -188,4 +188,18 @@ test('three hand length presets and optional next location are exposed', () => {
     assert.deepEqual(field.options.map(x => x.value), ['0','1','2']);
   }
   assert.equal(fields.find(x => x.messageKey === 'ShowNextLocation').defaultValue, false);
+  assert.match(fields.find(x => x.messageKey === 'HourHandLength').label, /Hour hand length/);
+  assert.match(fields.find(x => x.messageKey === 'MinuteHandLength').label, /Minute hand length/);
+});
+
+test('location message changes only during a 15-minute priority window', () => {
+  const app=sandbox({});
+  const now=new Date();
+  const base=now.getTime();
+  app.context.s_last_location_events=[
+    {allDay:false,location:'Room A',startTime:base+14*60*1000},
+  ];
+  assert.equal(app.context.currentPriorityLocation(now),'Room A');
+  assert.equal(app.context.currentPriorityLocation(new Date(base-2*60*1000)),'');
+  assert.equal(app.context.currentPriorityLocation(new Date(base+29*60*1000)),'');
 });
