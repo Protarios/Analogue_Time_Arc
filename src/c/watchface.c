@@ -496,6 +496,67 @@ static void draw_clock_hands(GContext *ctx, GPoint centre,
 }
 
 // --- Canvas draw ---------------------------------------------
+// Appointment text and location share one configurable drawing layer.
+// All weather/date elements are always drawn before the clock hands.
+static void draw_appointment_text(GContext *ctx, GRect bounds, GPoint centre,
+                                  int clock_radius, bool show_location) {
+    // -- Meeting Text ---------------------------------------------
+  
+  
+    int text_y = bounds.size.h - 80;
+  
+    for (int i = 0; i < 3; i++) {
+    
+        if (strlen(s_event_text[i]) == 0)
+            continue;
+    
+        int mins = s_events[i].full_start_mins;
+        int h = mins / 60;
+        int m = mins % 60;
+    
+        char time_buf[6];
+        snprintf(time_buf, sizeof(time_buf), "%02d:%02d", h, m);
+    
+        char buf[64];
+        if (i < s_event_count && s_events[i].all_day) {
+            snprintf(buf, sizeof(buf), "All day: %s", s_event_text[i]);
+        } else {
+            snprintf(buf, sizeof(buf), "%s %s", time_buf, s_event_text[i]);
+        }
+    
+        int event_cal = s_event_cal[i];
+        if (event_cal < 0 || event_cal >= MAX_CALENDARS)
+            event_cal = 0;
+    
+        graphics_context_set_text_color(
+            ctx,
+            palette_color(s_cal_color_idx[event_cal])
+        );
+    
+        graphics_draw_text(
+            ctx,
+            buf,
+            s_small_font,
+            GRect(8, text_y + i * 16, bounds.size.w - 8, 16),
+            GTextOverflowModeTrailingEllipsis,
+            GTextAlignmentCenter,
+            NULL
+        );
+    }
+
+    // Shared upper dial slot: location overrides battery only in the
+    // fifteen-minute window calculated by the phone.
+    if (show_location) {
+        char label[88];
+        snprintf(label, sizeof(label), "Ort: %s", s_next_location);
+        int loc_y = centre.y - clock_radius + 18;
+        graphics_context_set_text_color(ctx, s_text_color);
+        graphics_draw_text(ctx, label, s_small_font,
+            GRect(4, loc_y, bounds.size.w - 8, 38),
+            GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
+    }
+}
+
 static void canvas_update_proc(Layer *layer, GContext *ctx) {
     GRect   bounds = layer_get_bounds(layer);
     GPoint  centre = GPoint(bounds.size.w / 2, bounds.size.h / 2);
@@ -685,12 +746,6 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
     // ===============================
     // OVERLAY (BEFORE HANDS = UNDER)
     // ===============================
-    if (s_overlay_above_hands) {
-  
-      draw_clock_hands(ctx, centre, hour_angle, min_angle, sec_angle,
-                       hour_len, min_len, clock_radius, is_round);
-    }
-
     // -- Battery -------------------------------------------
     bool show_battery = s_battery_display_mode == 0 ||
         (s_battery_display_mode > 0 && s_battery_percent <= s_battery_display_mode);
@@ -863,67 +918,16 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
         }
     }
   
+    // Text is optional foreground: weather and date remain behind the hands.
     if (!s_overlay_above_hands) {
-  
-      draw_clock_hands(ctx, centre, hour_angle, min_angle, sec_angle,
-                       hour_len, min_len, clock_radius, is_round);
-    }
-  
-   
-    // -- Meeting Text ---------------------------------------------
-  
-  
-    int text_y = bounds.size.h - 80;
-  
-    for (int i = 0; i < 3; i++) {
-    
-        if (strlen(s_event_text[i]) == 0)
-            continue;
-    
-        int mins = s_events[i].full_start_mins;
-        int h = mins / 60;
-        int m = mins % 60;
-    
-        char time_buf[6];
-        snprintf(time_buf, sizeof(time_buf), "%02d:%02d", h, m);
-    
-        char buf[64];
-        if (i < s_event_count && s_events[i].all_day) {
-            snprintf(buf, sizeof(buf), "All day: %s", s_event_text[i]);
-        } else {
-            snprintf(buf, sizeof(buf), "%s %s", time_buf, s_event_text[i]);
-        }
-    
-        int event_cal = s_event_cal[i];
-        if (event_cal < 0 || event_cal >= MAX_CALENDARS)
-            event_cal = 0;
-    
-        graphics_context_set_text_color(
-            ctx,
-            palette_color(s_cal_color_idx[event_cal])
-        );
-    
-        graphics_draw_text(
-            ctx,
-            buf,
-            s_small_font,
-            GRect(8, text_y + i * 16, bounds.size.w - 8, 16),
-            GTextOverflowModeTrailingEllipsis,
-            GTextAlignmentCenter,
-            NULL
-        );
+        draw_appointment_text(ctx, bounds, centre, clock_radius, show_location);
     }
 
-    // Shared upper dial slot: location overrides battery only in the
-    // fifteen-minute window calculated by the phone.
-    if (show_location) {
-        char label[88];
-        snprintf(label, sizeof(label), "Ort: %s", s_next_location);
-        int loc_y = centre.y - clock_radius + 18;
-        graphics_context_set_text_color(ctx, s_text_color);
-        graphics_draw_text(ctx, label, s_small_font,
-            GRect(4, loc_y, bounds.size.w - 8, 38),
-            GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
+    draw_clock_hands(ctx, centre, hour_angle, min_angle, sec_angle,
+                     hour_len, min_len, clock_radius, is_round);
+
+    if (s_overlay_above_hands) {
+        draw_appointment_text(ctx, bounds, centre, clock_radius, show_location);
     }
 }
 
