@@ -105,6 +105,7 @@ typedef struct {
     bool all_day;    // true for date-only VEVENT; never render as arc
     int full_start_mins; // unwrapped 0-1439 minutes, for 24h event text
     uint8_t color_seed; // stable identity-based per-appointment color seed
+    uint8_t random_color_idx; // resolved palette entry, contrast-adjusted to neighbors
 } CalEvent;
 
 // --- State ---------------------------------------------------
@@ -156,6 +157,7 @@ static int s_weather_code = -1;
 
 static CalEvent s_events[MAX_EVENTS];
 static int      s_event_count = 0;
+static GPath   *s_arc_quad_path = NULL; // reused 4-point fill, no per-frame allocations
 
 static GFont s_small_font;
 static GFont s_date_font;
@@ -915,16 +917,88 @@ static void draw_complication_text(GContext *ctx, GRect area, int type,
         GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
 }
 
+// Use the same 16-color palette as the Clay color picker, except the two
+// entries too dark against the black clock face: gray #555555 and #5500AA.
+// All 14 remaining choices are visible and none is black.
+static const uint8_t s_random_arc_palette[14] =
+    { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15 };
+
+static int arc_palette_contrast(uint8_t lhs, uint8_t rhs) {
+    uint8_t a = s_palette_argb[lhs];
+    uint8_t b = s_palette_argb[rhs];
+    int dr = ((a >> 4) & 3) - ((b >> 4) & 3);
+    int dg = ((a >> 2) & 3) - ((b >> 2) & 3);
+    int db = (a & 3) - (b & 3);
+    // Weighted squared color distance in Pebble's 2-bit RGB space.
+    return 3 * dr * dr + 4 * dg * dg + 2 * db * db;
+}
+
+static bool arc_event_before(const CalEvent *a, const CalEvent *b) {
+    if (a->full_start_mins != b->full_start_mins)
+        return a->full_start_mins < b->full_start_mins;
+    if (a->color_seed != b->color_seed)
+        return a->color_seed < b->color_seed;
+    if (a->cal_index != b->cal_index)
+        return a->cal_index < b->cal_index;
+    return a->duration_mins < b->duration_mins;
+}
+
+// Called when the calendar packet changes, not during the every-second
+// drawing routine. Sort by actual start time, not incoming message order.
+// Each event starts at its seeded palette choice and walks a permutation
+// until it is visually distinct from the immediate chronological neighbor.
+// Where possible it also contrasts with the second most recent appointment.
+static void assign_random_arc_colors(void) {
+    int order[MAX_EVENTS];
+    int count = 0;
+    for (int i = 0; i < s_event_count; ++i) {
+        if (s_events[i].all_day || s_events[i].duration_mins <= 0) continue;
+        order[count++] = i;
+    }
+    for (int i = 1; i < count; ++i) {
+        int current = order[i];
+        int j = i;
+        while (j > 0 &&
+               arc_event_before(&s_events[current], &s_events[order[j - 1]])) {
+            order[j] = order[j - 1];
+            --j;
+        }
+        order[j] = current;
+    }
+    for (int i = 0; i < count; ++i) {
+        CalEvent *ev = &s_events[order[i]];
+        int first = ev->color_seed % 14;
+        int previous = i > 0 ? s_events[order[i - 1]].random_color_idx : -1;
+        int earlier = i > 1 ? s_events[order[i - 2]].random_color_idx : -1;
+        int selected = -1;
+
+        for (int pass = 0; pass < 2 && selected < 0; ++pass) {
+            for (int j = 0; j < 14; ++j) {
+                // Step 5 is coprime to 14: all palette colors are considered.
+                uint8_t candidate = s_random_arc_palette[(first + j * 5) % 14];
+                if (previous >= 0 &&
+                    arc_palette_contrast(candidate, (uint8_t)previous) < 15)
+                    continue;
+                if (pass == 0 && earlier >= 0 &&
+                    arc_palette_contrast(candidate, (uint8_t)earlier) < 11)
+                    continue;
+                selected = candidate;
+                break;
+            }
+        }
+        // Normally unnecessary (14 choices), but always keep a valid entry.
+        if (selected < 0)
+            selected = s_random_arc_palette[first];
+        ev->random_color_idx = (uint8_t)selected;
+    }
+}
+
 // Per-event colors are derived from a stable small seed, never from
 // a redraw-time random-number generator.
 static GColor event_arc_color(const CalEvent *ev, int calendar_idx) {
     GColor base = palette_color(s_cal_color_idx[calendar_idx]);
-    if (s_arc_color_mode == 1) {
-        // Avoid near-black entries for legibility on the black background.
-        static const uint8_t vivid_colors[12] =
-            { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15 };
-        return palette_color(vivid_colors[ev->color_seed % 12]);
-    }
+    if (s_arc_color_mode == 1)
+        return palette_color(ev->random_color_idx);
     if (s_arc_color_mode != 2) return base;
 
     int shade = ev->color_seed % 3;
@@ -960,25 +1034,58 @@ static void draw_calendar_arc_segment(GContext *ctx, GRect bounds, GPoint centre
     if (start_min >= end_min) return;
 
     if (s_arc_end_style == 1) {
+        // Adjacent filled quads meet along the same radial edge, removing
+        // the pinholes left by the old individually drawn 1px spokes.
+        // At the dial's scale, 1 minute = 0.5 degrees (< 1 pixel), so
+        // 1-minute segments are precise and cheaper than 0.5-minute strokes.
+        GPoint previous_inner, previous_outer;
+        int32_t initial_angle = (int32_t)start_min * TRIG_MAX_ANGLE / 720;
+        if (is_round) {
+            int radius = clock_radius + stroke_width;
+            int r_inner = radius - stroke_width / 2;
+            int r_outer = r_inner + stroke_width;
+            int32_t sn = sin_lookup(initial_angle), cv = cos_lookup(initial_angle);
+            previous_inner = GPoint(centre.x + sn * r_inner / TRIG_MAX_RATIO,
+                                    centre.y - cv * r_inner / TRIG_MAX_RATIO);
+            previous_outer = GPoint(centre.x + sn * r_outer / TRIG_MAX_RATIO,
+                                    centre.y - cv * r_outer / TRIG_MAX_RATIO);
+        } else {
+            previous_inner = perimeter_point_at_angle(bounds, stroke_width, initial_angle);
+            previous_outer = perimeter_point_at_angle(bounds, 0, initial_angle);
+        }
+
         graphics_context_set_stroke_width(ctx, 1);
-        for (int half_minute = start_min * 2;
-             half_minute <= end_min * 2; ++half_minute) {
-            int32_t angle = (int32_t)half_minute * TRIG_MAX_ANGLE / 1440;
+        graphics_draw_line(ctx, previous_inner, previous_outer);
+        for (int minute = start_min + 1; minute <= end_min; ++minute) {
+            int32_t angle = (int32_t)minute * TRIG_MAX_ANGLE / 720;
             GPoint inner, outer;
             if (is_round) {
-                const int arc_radius = clock_radius + stroke_width;
-                const int inner_radius = arc_radius - stroke_width / 2;
-                const int outer_radius = arc_radius + stroke_width / 2;
+                int radius = clock_radius + stroke_width;
+                int r_inner = radius - stroke_width / 2;
+                int r_outer = r_inner + stroke_width;
                 int32_t sn = sin_lookup(angle), cv = cos_lookup(angle);
-                inner = GPoint(centre.x + sn * inner_radius / TRIG_MAX_RATIO,
-                               centre.y - cv * inner_radius / TRIG_MAX_RATIO);
-                outer = GPoint(centre.x + sn * outer_radius / TRIG_MAX_RATIO,
-                               centre.y - cv * outer_radius / TRIG_MAX_RATIO);
+                inner = GPoint(centre.x + sn * r_inner / TRIG_MAX_RATIO,
+                               centre.y - cv * r_inner / TRIG_MAX_RATIO);
+                outer = GPoint(centre.x + sn * r_outer / TRIG_MAX_RATIO,
+                               centre.y - cv * r_outer / TRIG_MAX_RATIO);
             } else {
-                outer = perimeter_point_at_angle(bounds, 0, angle);
                 inner = perimeter_point_at_angle(bounds, stroke_width, angle);
+                outer = perimeter_point_at_angle(bounds, 0, angle);
             }
+
+            if (s_arc_quad_path) {
+                GPoint *points = s_arc_quad_path->points;
+                points[0] = previous_inner;
+                points[1] = previous_outer;
+                points[2] = outer;
+                points[3] = inner;
+                gpath_draw_filled(ctx, s_arc_quad_path);
+            }
+            // Explicit shared radial edge closes rasterizer seams between
+            // neighboring filled quads, without extending the sharp end caps.
             graphics_draw_line(ctx, inner, outer);
+            previous_inner = inner;
+            previous_outer = outer;
         }
         return;
     }
@@ -1149,7 +1256,9 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
 
         int ci = ev->cal_index;
         if (ci < 0 || ci >= MAX_CALENDARS) ci = 0;
-        graphics_context_set_stroke_color(ctx, event_arc_color(ev, ci));
+        GColor arc_color = event_arc_color(ev, ci);
+        graphics_context_set_stroke_color(ctx, arc_color);
+        graphics_context_set_fill_color(ctx, arc_color);
 
         if (!wraps) {
             draw_calendar_arc_segment(ctx, bounds, centre, clock_radius,
@@ -1302,6 +1411,7 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
             s_event_count++;
             if (*p == '|') p++; else break;
         }
+        assign_random_arc_colors();
     }
 
     Tuple *wt = dict_find(iter, KEY_WEATHER_TEMP);
@@ -1468,6 +1578,14 @@ static void init(void) {
     s_events[3].all_day = false;
     
     #endif
+    // One reusable polygon for all sharp calendar arc segments. No heap
+    // allocation inside the painting loop, including second ticks.
+    GPoint quad_init[4] = {
+        GPoint(0, 0), GPoint(0, 0), GPoint(0, 0), GPoint(0, 0)
+    };
+    GPathInfo quad_info = { .num_points = 4, .points = quad_init };
+    s_arc_quad_path = gpath_create(&quad_info);
+    assign_random_arc_colors();
     s_small_font = fonts_get_system_font(FONT_KEY_GOTHIC_18);
     s_date_font  = fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD);
     s_rainbow_bitmap = gbitmap_create_with_resource(RESOURCE_ID_IMG_RAINBOW_HAND);
@@ -1494,6 +1612,7 @@ static void deinit(void) {
     if (s_health_subscribed) health_service_events_unsubscribe();
     #endif
     window_destroy(s_window);
+    if (s_arc_quad_path) gpath_destroy(s_arc_quad_path);
     gbitmap_destroy(s_rainbow_bitmap);
     battery_state_service_unsubscribe();
 }

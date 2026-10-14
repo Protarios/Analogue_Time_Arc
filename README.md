@@ -54,3 +54,8 @@ Weather now shows both temperature and weather icons on either left or right sid
 ### 1.15.0 — Calendar arc styles
 
 Settings → Calendar arcs provides two independent selectors: **rounded (original)** or **exact flat ends**, combined with **calendar color (original)**, **stable random color per appointment**, or **shades of that appointment's calendar color**. The sharp mode derives angles from actual start/end minutes, without the visible overhang caused by rounded caps. Randomization uses a compact, deterministic seed derived from appointment identity; the color does not change at each redraw. Old settings and appointment packets default to the original rendering.
+
+
+### 1.15.1 — Solid sharp arcs and contrasting event colors
+
+Sharp calendar arcs now use **filled 4-point GPath quads** joining adjacent minute boundaries, with shared 1px edge sealing for pixel-perfect, flat starts and ends. The polygon is allocated once, avoiding per-frame heap allocations. Random event colors are selected from 14 bright entries of the same 16-color Clay palette (excluding dark gray and indigo), in chronological order. A deterministic, seed-based search ensures adjacent events have perceptibly different colors; the assignment is calculated only when calendar data arrive, not every second.

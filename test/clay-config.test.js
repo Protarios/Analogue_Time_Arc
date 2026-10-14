@@ -508,14 +508,21 @@ test('stable event seed identifies appointments independently from their order',
   assert.equal(Number(rows[0].split(',')[5]),app.context.eventColorSeed(e));
 });
 
-test('sharp calendar arcs have exact half-minute sampled flat end boundaries', () => {
+test('sharp calendar arcs fill adjoining polygons with exact minute boundaries', () => {
   const source=fs.readFileSync(path.join(root,'src/c/watchface.c'),'utf8');
   assert.ok(source.includes('s_arc_end_style == 1'));
-  assert.ok(source.includes('half_minute = start_min * 2'));
-  assert.ok(source.includes('half_minute <= end_min * 2'));
-  assert.ok(source.includes('half_minute * TRIG_MAX_ANGLE / 1440'));
+  assert.ok(source.includes('int minute = start_min + 1; minute <= end_min; ++minute'));
+  assert.ok(source.includes('minute * TRIG_MAX_ANGLE / 720'));
   assert.ok(source.includes('perimeter_point_at_angle(bounds, stroke_width, angle)'));
-  assert.ok(source.includes('graphics_context_set_stroke_width(ctx, 1)'));
+  assert.ok(source.includes('points[0] = previous_inner'));
+  assert.ok(source.includes('points[1] = previous_outer'));
+  assert.ok(source.includes('points[2] = outer'));
+  assert.ok(source.includes('points[3] = inner'));
+  assert.ok(source.includes('gpath_draw_filled(ctx, s_arc_quad_path)'));
+  assert.ok(source.includes('graphics_draw_line(ctx, inner, outer)'));
+  assert.ok(source.includes('graphics_context_set_fill_color(ctx, arc_color)'));
+  assert.ok(source.includes('gpath_create(&quad_info)'));
+  assert.ok(source.includes('gpath_destroy(s_arc_quad_path)'));
   assert.ok(source.includes('start, 720'));
   assert.ok(source.includes('0, end'));
   assert.ok(!source.includes('#define DRAW_ARC_SEGMENT'));
@@ -525,11 +532,66 @@ test('three arc coloring modes keep original palette and support stable variants
   const source=fs.readFileSync(path.join(root,'src/c/watchface.c'),'utf8');
   assert.ok(source.includes('s_arc_color_mode == 1'));
   assert.ok(source.includes('s_arc_color_mode != 2'));
-  assert.ok(source.includes('ev->color_seed % 12'));
+  assert.ok(source.includes('return palette_color(ev->random_color_idx)'));
   assert.ok(source.includes('ev->color_seed % 3'));
   assert.ok(source.includes('s_cal_color_idx[calendar_idx]'));
   assert.ok(source.includes('KEY_ARC_END_STYLE'));
   assert.ok(source.includes('KEY_ARC_COLOR_MODE'));
   assert.ok(source.includes('(uint8_t)((sm * 31 + dm * 17 + ci * 13) & 0xFF)'));
   assert.ok(source.includes('s_events[s_event_count].color_seed = (uint8_t)parse_int(&p)'));
+});
+
+test('random arc palette uses the existing bright color choices, not dark shades', () => {
+  const source=fs.readFileSync(path.join(root,'src/c/watchface.c'),'utf8');
+  const match=source.match(/s_random_arc_palette\[14\]\s*=\s*\{\s*([^}]+)\}/);
+  assert.ok(match, 'Expected explicit palette subset');
+  const options=match[1].split(',').map(s=>Number(s.trim())).filter(Number.isFinite);
+  assert.equal(options.length,14);
+  assert.deepEqual([...new Set(options)].sort((a,b)=>a-b),
+                   [0,1,2,3,4,5,6,7,8,9,10,11,12,15]);
+  assert.ok(!options.includes(13) && !options.includes(14));
+  assert.ok(source.includes('arc_palette_contrast(candidate, (uint8_t)previous) < 15'));
+  assert.ok(source.includes('arc_palette_contrast(candidate, (uint8_t)earlier) < 11'));
+  assert.ok(source.includes('arc_event_before(&s_events[current], &s_events[order[j - 1]])'));
+  assert.ok(source.includes('assign_random_arc_colors();'));
+  assert.ok(source.includes('ev->random_color_idx = (uint8_t)selected'));
+});
+
+test('palette can assign distinct contrasting colors to chronologically adjacent events', () => {
+  // Pebble stores RGB as a 2-bit-per-channel value. Exercise the same
+  // distance thresholds and permutation with a ten-event schedule.
+  const argb=[0xCE,0xDC,0xCF,0xC7,0xEB,0xE3,0xF7,0xF0,
+              0xF5,0xF8,0xFC,0xFF,0xEA,0xD5,0xD2,0xCC];
+  const palette=[0,1,2,3,4,5,6,7,8,9,10,11,12,15];
+  const contrast=(i,j)=>{
+    const a=argb[i],b=argb[j];
+    const dr=((a>>4)&3)-((b>>4)&3);
+    const dg=((a>>2)&3)-((b>>2)&3);
+    const db=(a&3)-(b&3);
+    return 3*dr*dr+4*dg*dg+2*db*db;
+  };
+  const seeds=[12,15,12,15,12,15,12,15,12,15];
+  const chosen=[];
+  for(const seed of seeds) {
+    const first=seed%14;
+    const previous=chosen.length?chosen[chosen.length-1]:-1;
+    const earlier=chosen.length>1?chosen[chosen.length-2]:-1;
+    let selected=-1;
+    for(let pass=0;pass<2 && selected<0;pass++) {
+      for(let j=0;j<14;j++) {
+        const candidate=palette[(first+j*5)%14];
+        if(previous>=0 && contrast(candidate,previous)<15)continue;
+        if(pass===0 && earlier>=0 && contrast(candidate,earlier)<11)continue;
+        selected=candidate;break;
+      }
+    }
+    chosen.push(selected);
+  }
+  assert.equal(chosen.length,10);
+  for(let i=0;i<chosen.length;i++) {
+    assert.ok(palette.includes(chosen[i]));
+    assert.ok(chosen[i]!==13 && chosen[i]!==14);
+    if(i)assert.ok(contrast(chosen[i],chosen[i-1])>=15,
+      'Adjacent appointment colors must have visible contrast');
+  }
 });
