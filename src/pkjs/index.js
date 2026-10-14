@@ -1,5 +1,5 @@
 // index.js — PebbleKit JS
-console.log("index.js v12 Clay loaded");
+console.log("Analogue Time Arc PebbleKit JS (Clay) loaded");
 
 var MAX_CALENDARS = 10;
 
@@ -633,8 +633,8 @@ Pebble.addEventListener("ready", function() {
 });
 
 Pebble.addEventListener("showConfiguration", function() {
-    // Migrate existing HTML-page settings, including all 10 ICS URLs, without
-    // overwriting the existing calendarConfig or depending on external hosting.
+    // Load previously saved watchface settings, including all 10 ICS URLs.
+    // The Clay settings page is bundled locally; no external hosting is used.
     if (localStorage.getItem('calendarConfig') !== null) {
         clay.setSettings(legacyToClay(loadSavedConfig()));
     }
