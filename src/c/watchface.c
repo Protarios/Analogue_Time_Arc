@@ -910,7 +910,7 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
     }
 
     // Optional next-appointment location, positioned between 12 and centre.
-    if (s_show_next_location && s_next_location[0] != '\\0') {
+    if (s_show_next_location && s_next_location[0] != '\0') {
         char label[88];
         snprintf(label, sizeof(label), "Ort: %s", s_next_location);
         graphics_context_set_text_color(ctx, s_text_color);

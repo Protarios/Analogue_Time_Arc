@@ -64,8 +64,16 @@ test('midnight-to-midnight DATE-TIME is also treated as all-day', () => {
 });
 
 test('24h time and ICS location survive recurrence/event conversion', () => {
-  const events = parse('BEGIN:VEVENT\\nDTSTART:20261013T140000\\nDTEND:20261013T150000\\nSUMMARY:Afternoon\\nLOCATION:Building\\, Room 3\\nEND:VEVENT');
+  const events = parse([
+    'BEGIN:VEVENT',
+    'DTSTART:20261013T140000',
+    'DTEND:20261013T150000',
+    'SUMMARY:Afternoon',
+    'LOCATION:Building\\, Room 3',
+    'END:VEVENT'
+  ].join('\n'));
   assert.equal(events.length, 1);
   assert.equal(events[0].fullStartMins, 840);
   assert.equal(events[0].location, 'Building, Room 3');
 });
+

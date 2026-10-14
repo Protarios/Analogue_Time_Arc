@@ -311,7 +311,8 @@ function pushArcEvent(events, calendarIndex, start, durationMs, now, cutoff, tit
 }
 
 function unescapeICSText(value) {
-    return (value || "").replace(/\\\\n/gi, " ").replace(/\\\\([,;\\\\])/g, "$1");
+    // ICS escapes: \n (line break), \, \; and \\.
+    return (value || "").replace(/\\[nN]/g, " ").replace(/\\([,;\\])/g, "$1");
 }
 
 function parseICS(raw, calendarIndex, now, cutoff) {
