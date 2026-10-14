@@ -40,31 +40,27 @@ function colorIndexToHex(value, fallback) {
     return COLOR_HEX[validOption(value, fallback, 15)];
 }
 function colorHexToIndex(value, fallback) {
-    // Clay's color picker returns the Pebble ARGB8 byte (e.g. 0xF0 for red)
-    // while older saved pages and tests may send an RGB hex string.
-    var number = typeof value === 'number' ? value :
-        (/^\\d+$/.test(String(value).trim()) ? Number(value) : NaN);
-    if (isFinite(number) && Math.floor(number) === number) {
-        if (number >= 0 && number < COLOR_HEX.length) return number;
-        // Decode Pebble's packed AARRGGBB representation (2 bits/channel).
-        if (number >= 0xC0 && number <= 0xFF) {
-            for (var i = 0; i < COLOR_HEX.length; i++) {
-                var rgb = COLOR_HEX[i];
-                var argb = 0xC0 |
-                    ((parseInt(rgb.substr(0, 2), 16) / 85) << 4) |
-                    ((parseInt(rgb.substr(2, 2), 16) / 85) << 2) |
-                    (parseInt(rgb.substr(4, 2), 16) / 85);
-                if (argb === number) return i;
-            }
+    // Clay's color picker serializes the 24-bit RGB color as a decimal
+    // number: red is 0xFF0000 (16711680), not a Pebble ARGB8 byte.
+    // Saved legacy palette indices (0..15) remain accepted.
+    if (typeof value === 'number') {
+        if (!isFinite(value) || Math.floor(value) !== value) return fallback;
+        if (value >= 0 && value < COLOR_HEX.length) return value;
+        if (value >= 0 && value <= 0xFFFFFF) {
+            var rgb = ('000000' + value.toString(16)).slice(-6).toUpperCase();
+            var matched = COLOR_HEX.indexOf(rgb);
+            return matched >= 0 ? matched : fallback;
         }
+        return fallback;
     }
-    var hex = String(value == null ? '' : value).trim()
-        .replace(/^#|^0x/i, '').toUpperCase();
+
+    var raw = String(value == null ? '' : value).trim();
+    // Strings from a color component are hexadecimal RGB, including strings
+    // comprised only of digits (e.g. "555555").
+    var hex = raw.replace(/^#|^0x/i, '').toUpperCase();
     var idx = COLOR_HEX.indexOf(hex);
     if (idx >= 0) return idx;
-    if (/^[0-9A-F]{2}$/.test(hex)) {
-        return colorHexToIndex(parseInt(hex, 16), fallback);
-    }
+    if (/^\\d{1,2}$/.test(raw)) return validOption(raw, fallback, 15);
     return fallback;
 }
 

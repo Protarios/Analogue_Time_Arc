@@ -235,16 +235,17 @@ test('color grid selection round-trips through old numeric app messages', () => 
   assert.equal(app.sent[0][12],15);
 });
 
-test('Clay color picker ARGB8 numbers persist without reverting to white', () => {
+test('Clay color picker RGB24 values survive saving for all colors', () => {
   const app=sandbox({hourColor:11,minuteColor:11,centerColor:11,tickColor:11});
   app.events.showConfiguration();
   const settings={};
   for(const f of fields) settings[f.messageKey]={value:app.clay.settings[f.messageKey] ?? f.defaultValue};
-  settings.HourHandColor.value=0xF0;  // Pebble red
-  settings.MinuteHandColor.value=0xCC; // Pebble green
-  settings.CenterColor.value=0xFF; // Pebble white
-  settings.TickColor.value=0xC7; // Pebble blue
-  settings.Calendar0Color.value=0xFC; // Pebble yellow
+  settings.HourHandColor.value=0xFF0000;   // Color picker emits 16711680
+  settings.MinuteHandColor.value=0x00FF00;
+  settings.CenterColor.value=0xFFFFFF;
+  settings.TickColor.value=0x0055FF;
+  settings.Calendar0Color.value=0xFFFF00;
+  settings.Calendar1Color.value=0x555555; // all-digit hex value
   app.events.webviewclosed({response:JSON.stringify(settings)});
   const saved=JSON.parse(app.memory.get('calendarConfig'));
   assert.equal(saved.hourColor,7);
@@ -252,9 +253,20 @@ test('Clay color picker ARGB8 numbers persist without reverting to white', () =>
   assert.equal(saved.centerColor,11);
   assert.equal(saved.tickColor,3);
   assert.equal(saved.color0,10);
+  assert.equal(saved.color1,13);
   assert.equal(app.sent[0][12],7);
   assert.equal(app.sent[0][14],15);
   assert.equal(app.sent[0][62],3);
   assert.equal(app.sent[0][63],11);
   assert.equal(app.sent[0][13].split(',')[0],'10');
+  assert.equal(app.sent[0][13].split(',')[1],'13');
+});
+
+test('all 16 Clay swatches round-trip as RGB24 colors', () => {
+  const app=sandbox({});
+  for (let i=0;i<schemaPalette.length;i++) {
+    const value=parseInt(schemaPalette[i],16);
+    assert.equal(app.context.colorHexToIndex(value,11),i);
+    assert.equal(app.context.colorHexToIndex(schemaPalette[i],11),i);
+  }
 });
