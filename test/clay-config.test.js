@@ -160,7 +160,7 @@ test('invalid or cancelled Clay payload leaves legacy configuration untouched', 
 });
 
 test('Clay configuration is bundled without a legacy hosted settings URL', () => {
-  assert.ok(js.includes('Pebble.openURL(clay.generateUrl())'));
+  assert.ok(js.includes('Pebble.openURL(settingsPage.generateUrl())'));
   assert.ok(!js.includes('protarios.github.io/pebble-analogue-config'));
   assert.ok(!js.includes('htmlpreview.github.io'));
 });
