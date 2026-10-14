@@ -38,6 +38,7 @@
 #define KEY_SHOW_NEXT_LOCATION    58
 #define KEY_NEXT_LOCATION         59
 #define KEY_BATTERY_DISPLAY_MODE  60
+#define KEY_LOCATION_PRIORITY     61
 
 // Rendering of Screenshots
 #define SCREENSHOT_MODE 0
@@ -101,6 +102,7 @@ static int s_min_hand_style  = 0; // 0: classic, 1: Minimalin, 2: rainbow
 static int s_hour_hand_length = 0; // short, medium, long
 static int s_min_hand_length = 0;
 static char s_next_location[81];
+static bool s_location_priority = false;
 static GBitmap *s_rainbow_bitmap;
 static bool s_overlay_above_hands = false; // default: UNDER hands
 
@@ -693,7 +695,8 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
     bool show_battery = s_battery_display_mode == 0 ||
         (s_battery_display_mode > 0 && s_battery_percent <= s_battery_display_mode);
     
-    bool show_location = s_next_location[0] != '\0';
+    bool show_location = s_next_location[0] != '\0' &&
+        (s_location_priority || !show_battery);
     if (show_battery && !show_location) {
     
         char batt[16];
@@ -1025,6 +1028,8 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
         int length = (int)ml->value->int32;
         s_min_hand_length = (length >= 0 && length <= 2) ? length : 0;
     }
+    Tuple *priority = dict_find(iter, KEY_LOCATION_PRIORITY);
+    if (priority) s_location_priority = priority->value->int32 != 0;
     Tuple *loc = dict_find(iter, KEY_NEXT_LOCATION);
     if (loc) {
         snprintf(s_next_location, sizeof(s_next_location), "%s", loc->value->cstring);

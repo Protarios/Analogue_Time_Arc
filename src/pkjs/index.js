@@ -512,33 +512,38 @@ function sendDisplaySettings() {
 var s_last_location_events = [];
 var s_last_location_sent = null;
 
-function currentPriorityLocation(now) {
+function currentLocationState(now) {
     var timestamp = now.getTime();
     var windowMs = 15 * 60 * 1000;
-    var candidates = s_last_location_events.filter(function(event) {
-        return !!event.location &&
-            timestamp >= event.startTime - windowMs &&
-            timestamp < event.startTime + windowMs;
+    var timed = s_last_location_events.filter(function(event) {
+        return !!event.location && event.endTime > timestamp;
     });
-    // If appointments overlap, prioritize an already started one, then the
-    // nearest upcoming appointment.
-    candidates.sort(function(a, b) {
-        var aStarted = a.startTime <= timestamp;
-        var bStarted = b.startTime <= timestamp;
-        if (aStarted !== bStarted) return aStarted ? -1 : 1;
-        return Math.abs(a.startTime - timestamp) - Math.abs(b.startTime - timestamp);
+    // Use the current appointment, otherwise the next upcoming appointment.
+    timed.sort(function(a, b) {
+        var aActive = a.startTime <= timestamp;
+        var bActive = b.startTime <= timestamp;
+        if (aActive !== bActive) return aActive ? -1 : 1;
+        return a.startTime - b.startTime;
     });
-    return candidates.length ? candidates[0].location.substring(0, 80) : "";
+    var event = timed.length ? timed[0] : null;
+    if (!event) return { location: "", priority: 0 };
+    return {
+        location: event.location.substring(0, 80),
+        priority: timestamp >= event.startTime - windowMs &&
+                  timestamp < event.startTime + windowMs ? 1 : 0
+    };
 }
 
 function refreshPriorityLocation() {
-    var location = currentPriorityLocation(new Date());
-    if (location === s_last_location_sent) return;
-    s_last_location_sent = location;
-    Pebble.sendAppMessage({59: location}, function() {
-        console.log("Location priority: " + (location || "battery"));
+    var state = currentLocationState(new Date());
+    var cacheKey = state.priority + "|" + state.location;
+    if (cacheKey === s_last_location_sent) return;
+    Pebble.sendAppMessage({59: state.location, 61: state.priority}, function() {
+        s_last_location_sent = cacheKey;
+        console.log("Appointment location: " + (state.location || "(none)") +
+                    ", priority=" + state.priority);
     }, function(err) {
-        console.log("Location priority update failed: " + JSON.stringify(err));
+        console.log("Location update failed: " + JSON.stringify(err));
         s_last_location_sent = null;
     });
 }
@@ -567,7 +572,7 @@ function sendEventsToWatch(events) {
     s_last_location_events = events.filter(function(event) {
         return !event.allDay && !!event.startTime;
     });
-    var nextLocation = currentPriorityLocation(now);
+    var locationState = currentLocationState(now);
 
     events = events.slice(0, 10);
 
@@ -589,10 +594,11 @@ function sendEventsToWatch(events) {
         18: next[0] ? next[0].calIndex : 0,
         19: next[1] ? next[1].calIndex : 0,
         20: next[2] ? next[2].calIndex : 0,
-        59: nextLocation
+        59: locationState.location,
+        61: locationState.priority
     };
 
-    s_last_location_sent = nextLocation;
+    s_last_location_sent = null; // Keep retries available if the combined packet fails.
     console.log("Sending " + events.length + " events: " + packed);
 
     Pebble.sendAppMessage(msg,

@@ -64,7 +64,8 @@
             "MinuteHandLength": 57,
             "ShowNextLocation": 58,
             "NextLocation": 59,
-            "BatteryDisplayMode": 60
+            "BatteryDisplayMode": 60,
+            "LocationPriority": 61
         },
         "projectType": "native",
         "resources": {
@@ -107,5 +108,5 @@
             "watchface": true
         }
     },
-    "version": "1.8.0"
+    "version": "1.8.1"
 }
