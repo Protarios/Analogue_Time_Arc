@@ -338,7 +338,7 @@ test('date-with-month and calendar week retain the large side-slot font', () => 
   const source = fs.readFileSync(path.join(root, 'src/c/watchface.c'), 'utf8');
   assert.match(source, /snprintf\(value, sizeof\(value\), "KW %s", week\)/);
   assert.match(source, /type == COMP_DATE \|\| type == COMP_DATE_DDMM \|\| type == COMP_WEEK/);
-  assert.match(source, /int slot_width = is_round \? 63 : 75;/);
+  assert.ok(source.includes('int wide_width = MIN(is_round ? 63 : 75, centre.x - slot_inset - 2);'));
   const options = fields.find(f => f.messageKey === 'LeftComplication').options;
   assert.ok(options.some(o => o.value === '7' && o.label.includes('large DD.MM')));
 });
@@ -391,4 +391,24 @@ test('minute tick geometry and battery icon drawing use dedicated modes', () => 
   assert.match(source,/s_battery_percent <= 20 \? GColorRed/);
   assert.match(source,/s_battery_percent <= 50 \? GColorYellow : GColorBrightGreen/);
   assert.match(source,/draw_battery_icon\(ctx, area\)/);
+});
+
+test('DD.MM is accepted by watch receiver for all three slot IDs', () => {
+  const source=fs.readFileSync(path.join(root,'src/c/watchface.c'),'utf8');
+  for(const key of ['lcomp','rcomp','tcomp']) {
+    assert.ok(source.includes(key+'->value->int32 <= 7'),
+      'New DD.MM value 7 rejected for '+key);
+  }
+  assert.ok(source.includes('snprintf(value, sizeof(value), "%02d.%02d"'));
+});
+
+test('seconds and battery use mirrored compact complication slots', () => {
+  const source=fs.readFileSync(path.join(root,'src/c/watchface.c'),'utf8');
+  assert.ok(source.includes('int compact_width = MIN(is_round ? 44 : 56, wide_width);'));
+  assert.ok(source.includes('bounds.size.w - slot_inset - right_width'));
+  assert.ok(source.includes('type == COMP_WEEK || type == COMP_SECONDS'));
+  assert.ok(source.includes('graphics_text_layout_get_content_size'));
+  assert.ok(source.includes('draw_battery_icon(ctx, area)'));
+  assert.ok(source.includes('bool wide_left = s_complication_left == COMP_DATE_DDMM'));
+  assert.ok(source.includes('bool wide_right = s_complication_right == COMP_DATE_DDMM'));
 });

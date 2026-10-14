@@ -652,7 +652,8 @@ static void draw_battery_icon(GContext *ctx, GRect area) {
 // Render text-only complications in a slot. Weather/date preserve their legacy
 // layouts in their original slots, handled directly in canvas_update_proc.
 static void draw_complication_text(GContext *ctx, GRect area, int type,
-                                   struct tm *now, bool use_fahrenheit) {
+                                   struct tm *now, bool use_fahrenheit,
+                                   bool side_slot) {
     char value[48] = "";
     if (type == COMP_EMPTY) return;
     if (type == COMP_DATE) {
@@ -686,9 +687,40 @@ static void draw_complication_text(GContext *ctx, GRect area, int type,
         snprintf(value, sizeof(value), "@%03d", seconds * 1000 / 86400);
     } else return;
     graphics_context_set_text_color(ctx, s_text_color);
-    GFont font = (type == COMP_DATE || type == COMP_DATE_DDMM || type == COMP_WEEK)
+    // Seconds use the same large numerals as the main date. Battery
+    // percentages retain the smaller font so "+100%" fits comfortably.
+    GFont font = (type == COMP_DATE || type == COMP_DATE_DDMM ||
+                  type == COMP_WEEK || type == COMP_SECONDS)
         ? s_date_font : s_small_font;
-    graphics_draw_text(ctx, value, font, area,
+
+    // Ensure DD.MM and KW NN are not truncated at the dial centre. Use a
+    // narrower 24pt font when necessary, and 18pt bold on smaller screens.
+    if (type == COMP_DATE_DDMM || type == COMP_WEEK) {
+        GRect measure_box = GRect(0, 0, 160, 42);
+        GSize measured = graphics_text_layout_get_content_size(
+            value, font, measure_box, GTextOverflowModeWordWrap, GTextAlignmentLeft);
+        if (measured.w > area.size.w) {
+            font = fonts_get_system_font(FONT_KEY_GOTHIC_24);
+            measured = graphics_text_layout_get_content_size(
+                value, font, measure_box, GTextOverflowModeWordWrap, GTextAlignmentLeft);
+        }
+        if (measured.w > area.size.w)
+            font = fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD);
+    }
+
+    // Keep text and the battery symbol vertically centred on the same
+    // physical axis. Do not change the existing layout of the upper slot.
+    GRect text_area = area;
+    if (side_slot) {
+        GSize content_size = graphics_text_layout_get_content_size(
+            value, font, GRect(0, 0, area.size.w, area.size.h),
+            GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter);
+        if (content_size.h > 0 && content_size.h < area.size.h) {
+            text_area.origin.y += (area.size.h - content_size.h) / 2;
+            text_area.size.h = content_size.h;
+        }
+    }
+    graphics_draw_text(ctx, value, font, text_area,
         GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
 }
 
@@ -891,22 +923,28 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
     bool show_location = s_next_location[0] != '\0' &&
         (s_location_priority || (s_complication_top == COMP_BATTERY && !show_battery));
 
-    // Same left anchor as the legacy large date. Mirrored on the right;
-    // neither side extends into the outer clock tick marks.
-    // The large date (DD.MM) and KW NN need more width than a day number.
-    // Expand inward, not toward the hour ticks at either screen edge.
-    int slot_width = is_round ? 63 : 75;
+    // Symmetric side-slot geometry: short values (seconds and battery)
+    // share the same axis and width on both sides. Long values (DD.MM,
+    // KW NN) expand only toward the middle, away from the outer hour marks.
     int slot_inset = is_round ? 24 : 22;
-    GRect left_rect = GRect(slot_inset, centre.y - 17, slot_width, 30);
-    GRect right_rect = GRect(bounds.size.w - slot_inset - slot_width,
-                             centre.y - 17, slot_width, 30);
+    int wide_width = MIN(is_round ? 63 : 75, centre.x - slot_inset - 2);
+    int compact_width = MIN(is_round ? 44 : 56, wide_width);
+    bool wide_left = s_complication_left == COMP_DATE_DDMM ||
+                     s_complication_left == COMP_WEEK;
+    bool wide_right = s_complication_right == COMP_DATE_DDMM ||
+                      s_complication_right == COMP_WEEK;
+    int left_width = wide_left ? wide_width : compact_width;
+    int right_width = wide_right ? wide_width : compact_width;
+    GRect left_rect = GRect(slot_inset, centre.y - 15, left_width, 30);
+    GRect right_rect = GRect(bounds.size.w - slot_inset - right_width,
+                            centre.y - 15, right_width, 30);
     GRect top_rect = GRect(4, centre.y - clock_radius + 18, bounds.size.w - 8, 24);
     if (!show_location) {
-        draw_complication_text(ctx, top_rect, s_complication_top, now, s_use_fahrenheit);
+        draw_complication_text(ctx, top_rect, s_complication_top, now, s_use_fahrenheit, false);
     }
-    draw_complication_text(ctx, left_rect, s_complication_left, now, s_use_fahrenheit);
+    draw_complication_text(ctx, left_rect, s_complication_left, now, s_use_fahrenheit, true);
     if (s_complication_right != COMP_WEATHER) {
-        draw_complication_text(ctx, right_rect, s_complication_right, now, s_use_fahrenheit);
+        draw_complication_text(ctx, right_rect, s_complication_right, now, s_use_fahrenheit, true);
     }
     if (s_complication_right == COMP_WEATHER) {
     // -- Weather -----------------------------------------------
@@ -959,13 +997,13 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
     if (tu) s_use_fahrenheit = (tu->value->int32 != 0);
 
     Tuple *lcomp = dict_find(iter, KEY_COMPLICATION_LEFT);
-    if (lcomp && lcomp->value->int32 >= 0 && lcomp->value->int32 <= 6)
+    if (lcomp && lcomp->value->int32 >= 0 && lcomp->value->int32 <= 7)
         s_complication_left = (int)lcomp->value->int32;
     Tuple *rcomp = dict_find(iter, KEY_COMPLICATION_RIGHT);
-    if (rcomp && rcomp->value->int32 >= 0 && rcomp->value->int32 <= 6)
+    if (rcomp && rcomp->value->int32 >= 0 && rcomp->value->int32 <= 7)
         s_complication_right = (int)rcomp->value->int32;
     Tuple *tcomp = dict_find(iter, KEY_COMPLICATION_TOP);
-    if (tcomp && tcomp->value->int32 >= 0 && tcomp->value->int32 <= 6)
+    if (tcomp && tcomp->value->int32 >= 0 && tcomp->value->int32 <= 7)
         s_complication_top = (int)tcomp->value->int32;
     Tuple *sd = dict_find(iter, KEY_SHOW_DATE);
     if (sd) s_show_date = (sd->value->int32 != 0);
