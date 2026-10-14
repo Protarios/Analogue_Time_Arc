@@ -68,7 +68,8 @@ function sandbox(initialConfig) {
   };
   vm.createContext(context);
   vm.runInContext(js, context);
-  return { context, events, sent, urls, memory, clay: MockClay.latest };
+  return { context, events, sent, urls, memory,
+           get clay() { return MockClay.latest; } };
 }
 const defaults = [0,4,8,2,9,5,1,7,10,3];
 const fields = itemsFromSchema(schema).filter(item => item.messageKey);
@@ -162,4 +163,20 @@ test('Clay configuration is bundled without a legacy hosted settings URL', () =>
   assert.ok(js.includes('Pebble.openURL(clay.generateUrl())'));
   assert.ok(!js.includes('protarios.github.io/pebble-analogue-config'));
   assert.ok(!js.includes('htmlpreview.github.io'));
+});
+
+test('PebbleKit startup does not require Clay until settings are opened', () => {
+  const events = {};
+  const context = {
+    console: { log() {} }, Date, Math, JSON,
+    setInterval() {},
+    Pebble: { addEventListener(name, fn) { events[name] = fn; }, sendAppMessage() {} },
+    localStorage: { getItem() { return null; } },
+    require() { throw new Error('Clay package not installed'); }
+  };
+  vm.createContext(context);
+  assert.doesNotThrow(() => vm.runInContext(js, context));
+  assert.ok(events.ready);
+  assert.ok(events.showConfiguration);
+  assert.doesNotThrow(() => events.showConfiguration());
 });

@@ -6,9 +6,17 @@ var MAX_CALENDARS = 10;
 // Keep the original "calendarConfig" schema: weather, calendar fetching and
 // the watch-side C renderer already consume these exact names/indices.
 // Clay stores its form state separately under "clay-settings".
-var Clay = require('@rebble/clay');
-var claySchema = require('./config');
-var clay = new Clay(claySchema, null, { autoHandleEvents: false });
+var clay = null;
+
+function ensureClay() {
+    if (clay) return clay;
+    // A broken or missing optional settings package must not block the normal
+    // PebbleKit startup, calendar fetching or weather updates.
+    var Clay = require('@rebble/clay');
+    var claySchema = require('./config');
+    clay = new Clay(claySchema, null, { autoHandleEvents: false });
+    return clay;
+}
 var DEFAULT_CAL_COLORS = [0, 4, 8, 2, 9, 5, 1, 7, 10, 3];
 
 function loadSavedConfig() {
@@ -633,12 +641,17 @@ Pebble.addEventListener("ready", function() {
 });
 
 Pebble.addEventListener("showConfiguration", function() {
-    // Load previously saved watchface settings, including all 10 ICS URLs.
-    // The Clay settings page is bundled locally; no external hosting is used.
-    if (localStorage.getItem('calendarConfig') !== null) {
-        clay.setSettings(legacyToClay(loadSavedConfig()));
+    try {
+        var settingsPage = ensureClay();
+        // Load previously saved watchface settings, including all 10 ICS URLs.
+        // The Clay settings page is bundled locally; no external hosting is used.
+        if (localStorage.getItem('calendarConfig') !== null) {
+            settingsPage.setSettings(legacyToClay(loadSavedConfig()));
+        }
+        Pebble.openURL(settingsPage.generateUrl());
+    } catch (err) {
+        console.log('Cannot open Clay settings: ' + err);
     }
-    Pebble.openURL(clay.generateUrl());
 });
 
 Pebble.addEventListener("webviewclosed", function(e) {
@@ -647,7 +660,7 @@ Pebble.addEventListener("webviewclosed", function(e) {
     try {
         // Suppress Clay's default bulk AppMessage: the C watchface only needs
         // the compact legacy messages, especially the packed calendar colors.
-        var settings = clay.getSettings(e.response, false);
+        var settings = ensureClay().getSettings(e.response, false);
         var config = clayToLegacy(settings, loadSavedConfig());
         localStorage.setItem('calendarConfig', JSON.stringify(config));
         console.log('Clay config saved');
