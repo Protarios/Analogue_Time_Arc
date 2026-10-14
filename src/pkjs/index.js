@@ -89,7 +89,8 @@ function legacyToClay(config) {
         MinuteHandStyle: String(validOption(config.minuteHandStyle, 0, 2)),
         HourHandLength: String(validOption(config.hourHandLength, 0, 2)),
         MinuteHandLength: String(validOption(config.minuteHandLength, 0, 2)),
-        ShowNextLocation: true
+        ShowNextLocation: true,
+        LocationPrefix: config.locationPrefix == null ? 'Ort: ' : String(config.locationPrefix)
     };
     for (var i = 0; i < MAX_CALENDARS; i++) {
         result['Calendar' + i + 'Label'] = config['label' + i] || '';
@@ -129,6 +130,8 @@ function clayToLegacy(settings, previous) {
     config.hourHandLength = validOption(clayValue(settings, 'HourHandLength', 0), 0, 2);
     config.minuteHandLength = validOption(clayValue(settings, 'MinuteHandLength', 0), 0, 2);
     config.showNextLocation = true;
+    config.locationPrefix = String(clayValue(settings, 'LocationPrefix',
+        config.locationPrefix == null ? 'Ort: ' : config.locationPrefix)).substring(0, 20);
 
     for (var i = 0; i < MAX_CALENDARS; i++) {
         var label = clayValue(settings, 'Calendar' + i + 'Label', '');
@@ -533,6 +536,7 @@ function sendDisplaySettings() {
         63: validOption(config.centerColor, 11, 15),
         64: validOption(config.secondsColor, 7, 15),
         65: validOption(config.secondsThickness, 1, 3) || 1,
+        66: (config.locationPrefix == null ? 'Ort: ' : String(config.locationPrefix)).substring(0, 20),
         21: (config.showSeconds !== false) ? 1 : 0,
         60: batteryMode(config.batteryDisplayMode,
               config.batteryWarningOnly !== false ? 20 : 0),

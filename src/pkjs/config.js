@@ -42,6 +42,9 @@ var config = [
     colorField('CenterColor', 'Center pivot / Zeigermittelpunkt', 11),
     { type: 'toggle', messageKey: 'ShowSeconds', label: 'Show seconds hand', defaultValue: true },
     { type: 'toggle', messageKey: 'OverlayAboveHands', label: 'Appointment location and titles above hands', defaultValue: false },
+    { type: 'input', messageKey: 'LocationPrefix',
+      label: 'Appointment location prefix / Ortspräfix', defaultValue: 'Ort: ',
+      attributes: { placeholder: 'Ort:  /  @  /  (empty)' } },
     { type: 'select', messageKey: 'BatteryDisplayMode', label: 'Battery display / Batterieanzeige',
       defaultValue: '20', options: [
         { label: 'Off / Aus', value: '-1' },

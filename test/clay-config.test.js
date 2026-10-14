@@ -76,7 +76,7 @@ const schemaPalette = ["00FFAA","55FF00","00FFFF","0055FF","AAAAFF","AA00FF","FF
 const fields = itemsFromSchema(schema).filter(item => item.messageKey);
 
 test('Clay defines all existing settings and exactly 10 full calendar entries', () => {
-  assert.equal(fields.length, 46);
+  assert.equal(fields.length, 47);
   const keys = fields.map(item => item.messageKey);
   assert.equal(new Set(keys).size, keys.length);
   for (let i = 0; i < 10; ++i) {
@@ -289,4 +289,19 @@ test('seconds hand color and relative stroke widths persist and reach watch', ()
   assert.equal(saved.secondsThickness,3);
   assert.equal(app.sent[0][64],3);
   assert.equal(app.sent[0][65],3);
+});
+
+test('appointment location prefix can be customized and cleared', () => {
+  const prefix = fields.find(x => x.messageKey === 'LocationPrefix');
+  assert.ok(prefix);
+  assert.equal(prefix.defaultValue, 'Ort: ');
+  const app = sandbox({locationPrefix:'@ '});
+  app.events.showConfiguration();
+  assert.equal(app.clay.settings.LocationPrefix, '@ ');
+  const values = {};
+  for (const field of fields) values[field.messageKey] = {value:app.clay.settings[field.messageKey] ?? field.defaultValue};
+  values.LocationPrefix.value = '';
+  app.events.webviewclosed({response:JSON.stringify(values)});
+  assert.equal(JSON.parse(app.memory.get('calendarConfig')).locationPrefix, '');
+  assert.equal(app.sent[0][66], '');
 });

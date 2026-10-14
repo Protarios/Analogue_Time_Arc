@@ -43,6 +43,7 @@
 #define KEY_CENTER_COLOR          63
 #define KEY_SECONDS_COLOR         64
 #define KEY_SECONDS_THICKNESS     65
+#define KEY_LOCATION_PREFIX       66
 
 // Rendering of Screenshots
 #define SCREENSHOT_MODE 0
@@ -111,6 +112,7 @@ static int s_min_hand_style  = 0; // 0: classic, 1: Minimalin, 2: rainbow
 static int s_hour_hand_length = 0; // short, medium, long
 static int s_min_hand_length = 0;
 static char s_next_location[81];
+static char s_location_prefix[21] = "Ort: ";
 static bool s_location_priority = false;
 static GBitmap *s_rainbow_bitmap;
 static bool s_overlay_above_hands = false; // default: UNDER hands
@@ -582,7 +584,7 @@ static void draw_appointment_text(GContext *ctx, GRect bounds, GPoint centre,
     // fifteen-minute window calculated by the phone.
     if (show_location) {
         char label[88];
-        snprintf(label, sizeof(label), "Ort: %s", s_next_location);
+        snprintf(label, sizeof(label), "%s%s", s_location_prefix, s_next_location);
         int loc_y = centre.y - clock_radius + 18;
         graphics_context_set_text_color(ctx, s_text_color);
         graphics_draw_text(ctx, label, s_small_font,
@@ -1090,6 +1092,11 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
     }
     Tuple *priority = dict_find(iter, KEY_LOCATION_PRIORITY);
     if (priority) s_location_priority = priority->value->int32 != 0;
+    Tuple *prefix = dict_find(iter, KEY_LOCATION_PREFIX);
+    if (prefix) {
+        snprintf(s_location_prefix, sizeof(s_location_prefix), "%s", prefix->value->cstring);
+    }
+
     Tuple *loc = dict_find(iter, KEY_NEXT_LOCATION);
     if (loc) {
         snprintf(s_next_location, sizeof(s_next_location), "%s", loc->value->cstring);

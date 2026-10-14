@@ -69,7 +69,8 @@
             "TickColor": 62,
             "CenterColor": 63,
             "SecondsColor": 64,
-            "SecondsThickness": 65
+            "SecondsThickness": 65,
+            "LocationPrefix": 66
         },
         "projectType": "native",
         "resources": {
@@ -112,5 +113,5 @@
             "watchface": true
         }
     },
-    "version": "1.11.0"
+    "version": "1.11.1"
 }
