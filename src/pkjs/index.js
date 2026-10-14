@@ -40,12 +40,32 @@ function colorIndexToHex(value, fallback) {
     return COLOR_HEX[validOption(value, fallback, 15)];
 }
 function colorHexToIndex(value, fallback) {
-    if (typeof value === 'number' || /^\\d{1,2}$/.test(String(value))) {
-        return validOption(value, fallback, 15);
+    // Clay's color picker returns the Pebble ARGB8 byte (e.g. 0xF0 for red)
+    // while older saved pages and tests may send an RGB hex string.
+    var number = typeof value === 'number' ? value :
+        (/^\\d+$/.test(String(value).trim()) ? Number(value) : NaN);
+    if (isFinite(number) && Math.floor(number) === number) {
+        if (number >= 0 && number < COLOR_HEX.length) return number;
+        // Decode Pebble's packed AARRGGBB representation (2 bits/channel).
+        if (number >= 0xC0 && number <= 0xFF) {
+            for (var i = 0; i < COLOR_HEX.length; i++) {
+                var rgb = COLOR_HEX[i];
+                var argb = 0xC0 |
+                    ((parseInt(rgb.substr(0, 2), 16) / 85) << 4) |
+                    ((parseInt(rgb.substr(2, 2), 16) / 85) << 2) |
+                    (parseInt(rgb.substr(4, 2), 16) / 85);
+                if (argb === number) return i;
+            }
+        }
     }
-    var hex = String(value || '').replace(/^#|^0x/i, '').toUpperCase();
+    var hex = String(value == null ? '' : value).trim()
+        .replace(/^#|^0x/i, '').toUpperCase();
     var idx = COLOR_HEX.indexOf(hex);
-    return idx >= 0 ? idx : fallback;
+    if (idx >= 0) return idx;
+    if (/^[0-9A-F]{2}$/.test(hex)) {
+        return colorHexToIndex(parseInt(hex, 16), fallback);
+    }
+    return fallback;
 }
 
 function batteryMode(value, fallback) {

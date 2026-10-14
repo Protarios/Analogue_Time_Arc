@@ -234,3 +234,27 @@ test('color grid selection round-trips through old numeric app messages', () => 
   assert.equal(saved.color0,9);
   assert.equal(app.sent[0][12],15);
 });
+
+test('Clay color picker ARGB8 numbers persist without reverting to white', () => {
+  const app=sandbox({hourColor:11,minuteColor:11,centerColor:11,tickColor:11});
+  app.events.showConfiguration();
+  const settings={};
+  for(const f of fields) settings[f.messageKey]={value:app.clay.settings[f.messageKey] ?? f.defaultValue};
+  settings.HourHandColor.value=0xF0;  // Pebble red
+  settings.MinuteHandColor.value=0xCC; // Pebble green
+  settings.CenterColor.value=0xFF; // Pebble white
+  settings.TickColor.value=0xC7; // Pebble blue
+  settings.Calendar0Color.value=0xFC; // Pebble yellow
+  app.events.webviewclosed({response:JSON.stringify(settings)});
+  const saved=JSON.parse(app.memory.get('calendarConfig'));
+  assert.equal(saved.hourColor,7);
+  assert.equal(saved.minuteColor,15);
+  assert.equal(saved.centerColor,11);
+  assert.equal(saved.tickColor,3);
+  assert.equal(saved.color0,10);
+  assert.equal(app.sent[0][12],7);
+  assert.equal(app.sent[0][14],15);
+  assert.equal(app.sent[0][62],3);
+  assert.equal(app.sent[0][63],11);
+  assert.equal(app.sent[0][13].split(',')[0],'10');
+});
