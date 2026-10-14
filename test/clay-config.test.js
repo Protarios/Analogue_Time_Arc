@@ -75,7 +75,7 @@ const defaults = [0,4,8,2,9,5,1,7,10,3];
 const fields = itemsFromSchema(schema).filter(item => item.messageKey);
 
 test('Clay defines all existing settings and exactly 10 full calendar entries', () => {
-  assert.equal(fields.length, 42);
+  assert.equal(fields.length, 43);
   const keys = fields.map(item => item.messageKey);
   assert.equal(new Set(keys).size, keys.length);
   for (let i = 0; i < 10; ++i) {
@@ -198,4 +198,11 @@ test('battery-mode presets are configurable', () => {
   const battery = fields.find(x => x.messageKey === 'BatteryDisplayMode');
   assert.ok(battery);
   assert.equal(battery.defaultValue, '20');
+});
+
+test('outer hour tick color uses a separate Clay setting', () => {
+  const tick = fields.find(x => x.messageKey === 'TickColor');
+  assert.ok(tick);
+  assert.equal(tick.defaultValue, '11');
+  assert.ok(tick.options.some(x => x.label.includes('Neon Green') && x.value === '15'));
 });

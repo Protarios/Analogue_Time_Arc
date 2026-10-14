@@ -39,6 +39,7 @@
 #define KEY_NEXT_LOCATION         59
 #define KEY_BATTERY_DISPLAY_MODE  60
 #define KEY_LOCATION_PRIORITY     61
+#define KEY_TICK_COLOR            62
 
 // Rendering of Screenshots
 #define SCREENSHOT_MODE 0
@@ -63,7 +64,7 @@ static const uint8_t s_palette_argb[16] = {
     GColorLightGrayARGB8,        // 12 Light Gray
     GColorDarkGrayARGB8,         // 13 Dark Gray
     GColorIndigoARGB8,           // 14 Indigo
-    GColorMintGreenARGB8,        // 15 Spring Green
+    0xCC,                        // 15 Neon Green (#00FF00, ARGB8: A=3 R=0 G=3 B=0)
 };
 
 static GColor palette_color(int idx) {
@@ -97,6 +98,7 @@ static bool   s_show_ticks     = true;
 static int s_cal_color_idx[MAX_CALENDARS] = { 0, 4, 8, 2, 9, 5, 1, 7, 10, 3 };
 static int s_hour_hand_color = 11;
 static int s_min_hand_color  = 11;
+static int s_tick_color      = 11; // formerly shared with minute hand
 static int s_hour_hand_style = 0; // 0: classic, 1: Minimalin
 static int s_min_hand_style  = 0; // 0: classic, 1: Minimalin, 2: rainbow
 static int s_hour_hand_length = 0; // short, medium, long
@@ -679,7 +681,7 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
     #endif
     if (show_ticks) {
         int arc_inset = 4;
-        graphics_context_set_stroke_color(ctx, palette_color(s_min_hand_color));
+        graphics_context_set_stroke_color(ctx, palette_color(s_tick_color));
         for (int h = 0; h < 12; h++) {
             int deg = h * 30;
             bool is_cardinal = (h % 3 == 0);
@@ -1024,6 +1026,9 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
 
     Tuple *wc = dict_find(iter, KEY_WEATHER_CODE);
     if (wc) s_weather_code = wc->value->int32;
+
+    Tuple *tc = dict_find(iter, KEY_TICK_COLOR);
+    if (tc) s_tick_color = (int)tc->value->int32;
 
     Tuple *mh = dict_find(iter, KEY_MIN_HAND_COLOR);
     if (mh) s_min_hand_color = (int)mh->value->int32;

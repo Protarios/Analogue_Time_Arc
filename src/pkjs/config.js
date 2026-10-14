@@ -6,7 +6,7 @@ var PALETTE = [
   ['Pink', '#FF55FF'], ['Red', '#FF0000'], ['Coral', '#FF5555'],
   ['Orange', '#FF8000'], ['Yellow', '#FFFF00'], ['White', '#FFFFFF'],
   ['Light Gray', '#AAAAAA'], ['Dark Gray', '#555555'],
-  ['Indigo', '#5500AA'], ['Spring Green', '#00FF55']
+  ['Indigo', '#5500AA'], ['Neon Green', '#00FF00']
 ];
 var DEFAULT_CAL_COLORS = [0, 4, 8, 2, 9, 5, 1, 7, 10, 3];
 var COLOR_OPTIONS = PALETTE.map(function(color, index) {
@@ -21,6 +21,7 @@ var config = [
     { type: 'toggle', messageKey: 'TemperatureUnit', label: 'Temperature in Fahrenheit', defaultValue: false },
     { type: 'toggle', messageKey: 'ShowDate', label: 'Show date', defaultValue: true },
     { type: 'toggle', messageKey: 'ShowTicks', label: 'Hour tick marks', defaultValue: true },
+    { type: 'select', messageKey: 'TickColor', label: 'Outer hour marks / Ziffernfarbe', defaultValue: '11', options: COLOR_OPTIONS },
     { type: 'toggle', messageKey: 'ShowSeconds', label: 'Show seconds hand', defaultValue: true },
     { type: 'toggle', messageKey: 'OverlayAboveHands', label: 'Appointment location and titles above hands', defaultValue: false },
     { type: 'select', messageKey: 'BatteryDisplayMode', label: 'Battery display / Batterieanzeige',

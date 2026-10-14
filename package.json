@@ -65,7 +65,8 @@
             "ShowNextLocation": 58,
             "NextLocation": 59,
             "BatteryDisplayMode": 60,
-            "LocationPriority": 61
+            "LocationPriority": 61,
+            "TickColor": 62
         },
         "projectType": "native",
         "resources": {
@@ -108,5 +109,5 @@
             "watchface": true
         }
     },
-    "version": "1.8.4"
+    "version": "1.9.0"
 }
