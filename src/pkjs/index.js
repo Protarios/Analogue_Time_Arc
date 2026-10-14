@@ -35,6 +35,19 @@ function validOption(value, fallback, max) {
         ? number : fallback;
 }
 
+var COLOR_HEX = ["00FFAA","55FF00","00FFFF","0055FF","AAAAFF","AA00FF","FF55FF","FF0000","FF5555","FFAA00","FFFF00","FFFFFF","AAAAAA","555555","5500AA","00FF00"];
+function colorIndexToHex(value, fallback) {
+    return COLOR_HEX[validOption(value, fallback, 15)];
+}
+function colorHexToIndex(value, fallback) {
+    if (typeof value === 'number' || /^\\d{1,2}$/.test(String(value))) {
+        return validOption(value, fallback, 15);
+    }
+    var hex = String(value || '').replace(/^#|^0x/i, '').toUpperCase();
+    var idx = COLOR_HEX.indexOf(hex);
+    return idx >= 0 ? idx : fallback;
+}
+
 function batteryMode(value, fallback) {
     var n = Number(value);
     return (n === -1 || n === 0 || n === 10 || n === 20 ||
@@ -50,10 +63,10 @@ function legacyToClay(config) {
         OverlayAboveHands: config.overlayAboveHands === true,
         BatteryDisplayMode: String(batteryMode(config.batteryDisplayMode,
             config.batteryWarningOnly !== false ? 20 : 0)),
-        HourHandColor: String(validOption(config.hourColor, 11, 15)),
-        MinuteHandColor: String(validOption(config.minuteColor, 11, 15)),
-        TickColor: String(validOption(config.tickColor, 11, 15)),
-        CenterColor: String(validOption(config.centerColor, 11, 15)),
+        HourHandColor: colorIndexToHex(config.hourColor, 11),
+        MinuteHandColor: colorIndexToHex(config.minuteColor, 11),
+        TickColor: colorIndexToHex(config.tickColor, 11),
+        CenterColor: colorIndexToHex(config.centerColor, 11),
         HourHandStyle: String(validOption(config.hourHandStyle, 0, 1)),
         MinuteHandStyle: String(validOption(config.minuteHandStyle, 0, 2)),
         HourHandLength: String(validOption(config.hourHandLength, 0, 2)),
@@ -64,7 +77,7 @@ function legacyToClay(config) {
         result['Calendar' + i + 'Label'] = config['label' + i] || '';
         result['Calendar' + i + 'Url'] = config['url' + i] || '';
         result['Calendar' + i + 'Color'] =
-            String(validOption(config['color' + i], DEFAULT_CAL_COLORS[i], 15));
+            colorIndexToHex(config['color' + i], DEFAULT_CAL_COLORS[i]);
     }
     return result;
 }
@@ -87,10 +100,10 @@ function clayToLegacy(settings, previous) {
     config.overlayAboveHands = !!clayValue(settings, 'OverlayAboveHands', false);
     config.batteryDisplayMode = batteryMode(clayValue(settings, 'BatteryDisplayMode',
         config.batteryWarningOnly !== false ? 20 : 0), 20);
-    config.hourColor = validOption(clayValue(settings, 'HourHandColor', 11), 11, 15);
-    config.minuteColor = validOption(clayValue(settings, 'MinuteHandColor', 11), 11, 15);
-    config.tickColor = validOption(clayValue(settings, 'TickColor', 11), 11, 15);
-    config.centerColor = validOption(clayValue(settings, 'CenterColor', 11), 11, 15);
+    config.hourColor = colorHexToIndex(clayValue(settings, 'HourHandColor', colorIndexToHex(config.hourColor, 11)), 11);
+    config.minuteColor = colorHexToIndex(clayValue(settings, 'MinuteHandColor', colorIndexToHex(config.minuteColor, 11)), 11);
+    config.tickColor = colorHexToIndex(clayValue(settings, 'TickColor', colorIndexToHex(config.tickColor, 11)), 11);
+    config.centerColor = colorHexToIndex(clayValue(settings, 'CenterColor', colorIndexToHex(config.centerColor, 11)), 11);
     config.hourHandStyle = validOption(clayValue(settings, 'HourHandStyle', 0), 0, 1);
     config.minuteHandStyle = validOption(clayValue(settings, 'MinuteHandStyle', 0), 0, 2);
     config.hourHandLength = validOption(clayValue(settings, 'HourHandLength', 0), 0, 2);
@@ -102,9 +115,10 @@ function clayToLegacy(settings, previous) {
         var url = clayValue(settings, 'Calendar' + i + 'Url', '');
         config['label' + i] = String(label == null ? '' : label).trim();
         config['url' + i] = String(url == null ? '' : url).trim();
-        config['color' + i] = validOption(
-            clayValue(settings, 'Calendar' + i + 'Color', DEFAULT_CAL_COLORS[i]),
-            DEFAULT_CAL_COLORS[i], 15);
+        config['color' + i] = colorHexToIndex(
+            clayValue(settings, 'Calendar' + i + 'Color',
+                colorIndexToHex(config['color' + i], DEFAULT_CAL_COLORS[i])),
+            DEFAULT_CAL_COLORS[i]);
     }
     return config;
 }

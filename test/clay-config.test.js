@@ -72,6 +72,7 @@ function sandbox(initialConfig) {
            get clay() { return MockClay.latest; } };
 }
 const defaults = [0,4,8,2,9,5,1,7,10,3];
+const schemaPalette = ["00FFAA","55FF00","00FFFF","0055FF","AAAAFF","AA00FF","FF55FF","FF0000","FF5555","FFAA00","FFFF00","FFFFFF","AAAAAA","555555","5500AA","00FF00"];
 const fields = itemsFromSchema(schema).filter(item => item.messageKey);
 
 test('Clay defines all existing settings and exactly 10 full calendar entries', () => {
@@ -83,8 +84,9 @@ test('Clay defines all existing settings and exactly 10 full calendar entries', 
     assert.ok(keys.includes('Calendar' + i + 'Url'));
     assert.ok(keys.includes('Calendar' + i + 'Color'));
     const color = fields.find(item => item.messageKey === 'Calendar'+i+'Color');
-    assert.equal(color.options.length, 16);
-    assert.equal(color.defaultValue, String(defaults[i]));
+    assert.equal(color.type, 'color');
+    assert.equal(color.defaultValue, schemaPalette[defaults[i]]);
+    assert.equal(color.layout.flat().length, 16);
   }
   assert.equal(schema[schema.length-1].type, 'submit');
 });
@@ -109,7 +111,7 @@ test('legacy saved values are present when opening built-in Clay', () => {
   assert.equal(app.clay.settings.MinuteHandStyle, '2');
   for(let i=0;i<10;i++){
     assert.equal(app.clay.settings['Calendar'+i+'Url'],saved['url'+i]);
-    assert.equal(app.clay.settings['Calendar'+i+'Color'],String(saved['color'+i]));
+    assert.equal(app.clay.settings['Calendar'+i+'Color'],schemaPalette[saved['color'+i]]);
   }
   app.events.webviewclosed({response:'CANCELLED'});
   assert.deepEqual(JSON.parse(app.memory.get('calendarConfig')),saved);
@@ -125,12 +127,12 @@ test('Clay save preserves 10 calendar entries, palette indexes and hand styles',
   }
   settings.HourHandStyle.value='1';
   settings.MinuteHandStyle.value='2';
-  settings.HourHandColor.value='9';
-  settings.MinuteHandColor.value='12';
+  settings.HourHandColor.value=schemaPalette[9];
+  settings.MinuteHandColor.value=schemaPalette[12];
   settings.OverlayAboveHands.value=true;
   settings.Calendar0Url.value='https://example.com/personal.ics';
   settings.Calendar0Label.value='Personal';
-  settings.Calendar0Color.value='7';
+  settings.Calendar0Color.value=schemaPalette[7];
   app.events.webviewclosed({response:JSON.stringify(settings)});
   const saved=JSON.parse(app.memory.get('calendarConfig'));
   assert.equal(saved.customFlag,'preserved');
@@ -203,14 +205,32 @@ test('battery-mode presets are configurable', () => {
 test('outer hour tick color uses a separate Clay setting', () => {
   const tick = fields.find(x => x.messageKey === 'TickColor');
   assert.ok(tick);
-  assert.equal(tick.defaultValue, '11');
-  assert.ok(tick.options.some(x => x.label.includes('Neon Green') && x.value === '15'));
+  assert.equal(tick.type, 'color');
+  assert.equal(tick.defaultValue, 'FFFFFF');
+  assert.ok(tick.layout.flat().includes('00FF00'));
 });
 
 test('independent central pivot color is configurable', () => {
   const field = fields.find(x => x.messageKey === 'CenterColor');
   assert.ok(field);
-  assert.equal(field.defaultValue, '11');
+  assert.equal(field.type, 'color');
+  assert.equal(field.defaultValue, 'FFFFFF');
   assert.match(field.label, /Zeigermittelpunkt/);
   assert.ok(js.includes('63: validOption(config.centerColor, 11, 15)'));
+});
+
+test('color grid selection round-trips through old numeric app messages', () => {
+  const app=sandbox({hourColor:7,centerColor:11,color0:14});
+  app.events.showConfiguration();
+  assert.equal(app.clay.settings.HourHandColor, 'FF0000');
+  assert.equal(app.clay.settings.Calendar0Color, '5500AA');
+  const settings={};
+  for(const f of fields) settings[f.messageKey]={value:app.clay.settings[f.messageKey] ?? f.defaultValue};
+  settings.HourHandColor.value='00FF00';
+  settings.Calendar0Color.value='#FFAA00';
+  app.events.webviewclosed({response:JSON.stringify(settings)});
+  const saved=JSON.parse(app.memory.get('calendarConfig'));
+  assert.equal(saved.hourColor,15);
+  assert.equal(saved.color0,9);
+  assert.equal(app.sent[0][12],15);
 });

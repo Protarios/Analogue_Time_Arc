@@ -1,17 +1,34 @@
 // Clay configuration, bundled with the watchface (no hosted HTML page).
 // The palette indexes intentionally match s_palette_argb[] in src/c/watchface.c.
 var PALETTE = [
-  ['Teal', '#00CFA5'], ['Mint', '#55FF00'], ['Cyan', '#00FFFF'],
-  ['Blue', '#0055FF'], ['Lavender', '#AAAAFF'], ['Purple', '#AA00FF'],
-  ['Pink', '#FF55FF'], ['Red', '#FF0000'], ['Coral', '#FF5555'],
-  ['Orange', '#FF8000'], ['Yellow', '#FFFF00'], ['White', '#FFFFFF'],
-  ['Light Gray', '#AAAAAA'], ['Dark Gray', '#555555'],
-  ['Indigo', '#5500AA'], ['Neon Green', '#00FF00']
+  ['Turquoise', '00FFAA'],
+  ['Lime', '55FF00'],
+  ['Cyan', '00FFFF'],
+  ['Blue', '0055FF'],
+  ['Lavender', 'AAAAFF'],
+  ['Violet', 'AA00FF'],
+  ['Magenta', 'FF55FF'],
+  ['Red', 'FF0000'],
+  ['Coral', 'FF5555'],
+  ['Orange', 'FFAA00'],
+  ['Yellow', 'FFFF00'],
+  ['White', 'FFFFFF'],
+  ['Light gray', 'AAAAAA'],
+  ['Dark gray', '555555'],
+  ['Indigo', '5500AA'],
+  ['Neon green', '00FF00']
 ];
 var DEFAULT_CAL_COLORS = [0, 4, 8, 2, 9, 5, 1, 7, 10, 3];
-var COLOR_OPTIONS = PALETTE.map(function(color, index) {
-  return { label: color[0] + ' (' + color[1] + ')', value: String(index) };
-});
+var COLOR_LAYOUT = [
+  PALETTE.slice(0,4).map(function(c) { return c[1]; }),
+  PALETTE.slice(4,8).map(function(c) { return c[1]; }),
+  PALETTE.slice(8,12).map(function(c) { return c[1]; }),
+  PALETTE.slice(12,16).map(function(c) { return c[1]; })
+];
+function colorField(messageKey, label, index) {
+  return { type: 'color', messageKey: messageKey, label: label,
+    defaultValue: PALETTE[index][1], sunlight: false, layout: COLOR_LAYOUT };
+}
 
 var config = [
   { type: 'heading', defaultValue: 'Analogue Time Arc' },
@@ -21,8 +38,8 @@ var config = [
     { type: 'toggle', messageKey: 'TemperatureUnit', label: 'Temperature in Fahrenheit', defaultValue: false },
     { type: 'toggle', messageKey: 'ShowDate', label: 'Show date', defaultValue: true },
     { type: 'toggle', messageKey: 'ShowTicks', label: 'Hour tick marks', defaultValue: true },
-    { type: 'select', messageKey: 'TickColor', label: 'Outer hour marks / Ziffernfarbe', defaultValue: '11', options: COLOR_OPTIONS },
-    { type: 'select', messageKey: 'CenterColor', label: 'Center pivot / Zeigermittelpunkt', defaultValue: '11', options: COLOR_OPTIONS },
+    colorField('TickColor', 'Outer hour marks / Ziffernfarbe', 11),
+    colorField('CenterColor', 'Center pivot / Zeigermittelpunkt', 11),
     { type: 'toggle', messageKey: 'ShowSeconds', label: 'Show seconds hand', defaultValue: true },
     { type: 'toggle', messageKey: 'OverlayAboveHands', label: 'Appointment location and titles above hands', defaultValue: false },
     { type: 'select', messageKey: 'BatteryDisplayMode', label: 'Battery display / Batterieanzeige',
@@ -47,7 +64,7 @@ var config = [
         { label: 'Medium', value: '1' },
         { label: 'Long (near dial edge)', value: '2' }
       ] },
-    { type: 'select', messageKey: 'HourHandColor', label: 'Color', defaultValue: '11', options: COLOR_OPTIONS }
+    colorField('HourHandColor', 'Color', 11)
   ] },
   { type: 'section', items: [
     { type: 'heading', defaultValue: 'Minute hand' },
@@ -62,8 +79,7 @@ var config = [
         { label: 'Medium', value: '1' },
         { label: 'Long (near dial edge)', value: '2' }
       ] },
-    { type: 'select', messageKey: 'MinuteHandColor', label: 'Color (not used in Rainbow mode)',
-      defaultValue: '11', options: COLOR_OPTIONS }
+    colorField('MinuteHandColor', 'Color (not used in Rainbow mode)', 11)
   ] }
 ];
 
@@ -81,9 +97,7 @@ for (var i = 0; i < 10; i++) {
     { type: 'input', messageKey: 'Calendar' + i + 'Url',
       label: 'ICS subscription URL', defaultValue: '',
       attributes: { type: 'url', placeholder: 'https://example.org/calendar.ics' } },
-    { type: 'select', messageKey: 'Calendar' + i + 'Color',
-      label: 'Event/arc color', defaultValue: String(DEFAULT_CAL_COLORS[i]),
-      options: COLOR_OPTIONS }
+    colorField('Calendar' + i + 'Color', 'Event/arc color', DEFAULT_CAL_COLORS[i])
   ] });
 }
 config.push({ type: 'submit', defaultValue: 'Save settings' });

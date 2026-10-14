@@ -50,22 +50,23 @@
 // --- Colour palette -------------------------------------------
 // Must match PALETTE in index.html exactly.
 static const uint8_t s_palette_argb[16] = {
-    GColorMintGreenARGB8,        //  0 Teal
-    GColorBrightGreenARGB8,      //  1 Mint
-    GColorCyanARGB8,             //  2 Cyan
-    GColorBlueARGB8,             //  3 Blue
-    GColorLavenderIndigoARGB8,   //  4 Lavender
-    GColorPurpleARGB8,           //  5 Purple
-    GColorMagentaARGB8,          //  6 Pink
-    GColorRedARGB8,              //  7 Red
-    GColorMelonARGB8,            //  8 Coral
-    GColorOrangeARGB8,           //  9 Orange
-    GColorYellowARGB8,           // 10 Yellow
-    GColorWhiteARGB8,            // 11 White
-    GColorLightGrayARGB8,        // 12 Light Gray
-    GColorDarkGrayARGB8,         // 13 Dark Gray
-    GColorIndigoARGB8,           // 14 Indigo
-    0xCC,                        // 15 Neon Green (#00FF00, ARGB8: A=3 R=0 G=3 B=0)
+    0xCE, // 0: Turquoise #00FFAA
+    0xDC, // 1: Lime #55FF00
+    0xCF, // 2: Cyan #00FFFF
+    0xC7, // 3: Blue #0055FF
+    0xEB, // 4: Lavender #AAAAFF
+    0xE3, // 5: Violet #AA00FF
+    0xF7, // 6: Magenta #FF55FF
+    0xF0, // 7: Red #FF0000
+    0xF5, // 8: Coral #FF5555
+    0xF8, // 9: Orange #FFAA00
+    0xFC, // 10: Yellow #FFFF00
+    0xFF, // 11: White #FFFFFF
+    0xEA, // 12: Light gray #AAAAAA
+    0xD5, // 13: Dark gray #555555
+    0xD2, // 14: Indigo #5500AA
+    0xCC, // 15: Neon green #00FF00
+
 };
 
 static GColor palette_color(int idx) {
