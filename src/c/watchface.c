@@ -40,6 +40,7 @@
 #define KEY_BATTERY_DISPLAY_MODE  60
 #define KEY_LOCATION_PRIORITY     61
 #define KEY_TICK_COLOR            62
+#define KEY_CENTER_COLOR          63
 
 // Rendering of Screenshots
 #define SCREENSHOT_MODE 0
@@ -99,6 +100,7 @@ static int s_cal_color_idx[MAX_CALENDARS] = { 0, 4, 8, 2, 9, 5, 1, 7, 10, 3 };
 static int s_hour_hand_color = 11;
 static int s_min_hand_color  = 11;
 static int s_tick_color      = 11; // formerly shared with minute hand
+static int s_center_color    = 11; // independent hub color
 static int s_hour_hand_style = 0; // 0: classic, 1: Minimalin
 static int s_min_hand_style  = 0; // 0: classic, 1: Minimalin, 2: rainbow
 static int s_hour_hand_length = 0; // short, medium, long
@@ -448,17 +450,6 @@ static void draw_clock_hands(GContext *ctx, GPoint centre,
         graphics_fill_circle(ctx, tip_hour, hour_width / 2);
     }
 
-    // Hub belongs below the minute hand: never cover the minute hand with it.
-    if (s_hour_hand_style == 1 || s_min_hand_style != 0) {
-        graphics_context_set_fill_color(ctx,
-            s_min_hand_style == 2 ? GColorVividViolet : palette_color(s_hour_hand_color));
-        graphics_fill_circle(ctx, centre, is_round ? 5 : 7);
-    } else {
-        graphics_context_set_fill_color(ctx, palette_color(s_min_hand_color));
-        graphics_fill_rect(ctx, GRect(centre.x - 3, centre.y - 3, 6, 6), 0, GCornerNone);
-    }
-
-
     // Draw minute hand over hour hand. Rainbow is vector-drawn from the true centre,
     // avoiding the black/offset portion of the old opaque bitmap.
     if (s_min_hand_style == 2) {
@@ -495,6 +486,9 @@ static void draw_clock_hands(GContext *ctx, GPoint centre,
         graphics_context_set_stroke_width(ctx, 1);
         graphics_draw_line(ctx, centre, tip_sec);
     }
+    // The independently colored central pivot must cover both hands.
+    graphics_context_set_fill_color(ctx, palette_color(s_center_color));
+    graphics_fill_circle(ctx, centre, is_round ? 5 : 7);
 }
 
 
@@ -1029,6 +1023,11 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
 
     Tuple *tc = dict_find(iter, KEY_TICK_COLOR);
     if (tc) s_tick_color = (int)tc->value->int32;
+    Tuple *hub = dict_find(iter, KEY_CENTER_COLOR);
+    if (hub) {
+        int col = (int)hub->value->int32;
+        s_center_color = (col >= 0 && col < 16) ? col : 11;
+    }
 
     Tuple *mh = dict_find(iter, KEY_MIN_HAND_COLOR);
     if (mh) s_min_hand_color = (int)mh->value->int32;

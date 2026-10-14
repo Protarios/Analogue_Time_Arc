@@ -75,7 +75,7 @@ const defaults = [0,4,8,2,9,5,1,7,10,3];
 const fields = itemsFromSchema(schema).filter(item => item.messageKey);
 
 test('Clay defines all existing settings and exactly 10 full calendar entries', () => {
-  assert.equal(fields.length, 43);
+  assert.equal(fields.length, 44);
   const keys = fields.map(item => item.messageKey);
   assert.equal(new Set(keys).size, keys.length);
   for (let i = 0; i < 10; ++i) {
@@ -205,4 +205,12 @@ test('outer hour tick color uses a separate Clay setting', () => {
   assert.ok(tick);
   assert.equal(tick.defaultValue, '11');
   assert.ok(tick.options.some(x => x.label.includes('Neon Green') && x.value === '15'));
+});
+
+test('independent central pivot color is configurable', () => {
+  const field = fields.find(x => x.messageKey === 'CenterColor');
+  assert.ok(field);
+  assert.equal(field.defaultValue, '11');
+  assert.match(field.label, /Zeigermittelpunkt/);
+  assert.ok(js.includes('63: validOption(config.centerColor, 11, 15)'));
 });

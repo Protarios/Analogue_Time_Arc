@@ -22,6 +22,7 @@ var config = [
     { type: 'toggle', messageKey: 'ShowDate', label: 'Show date', defaultValue: true },
     { type: 'toggle', messageKey: 'ShowTicks', label: 'Hour tick marks', defaultValue: true },
     { type: 'select', messageKey: 'TickColor', label: 'Outer hour marks / Ziffernfarbe', defaultValue: '11', options: COLOR_OPTIONS },
+    { type: 'select', messageKey: 'CenterColor', label: 'Center pivot / Zeigermittelpunkt', defaultValue: '11', options: COLOR_OPTIONS },
     { type: 'toggle', messageKey: 'ShowSeconds', label: 'Show seconds hand', defaultValue: true },
     { type: 'toggle', messageKey: 'OverlayAboveHands', label: 'Appointment location and titles above hands', defaultValue: false },
     { type: 'select', messageKey: 'BatteryDisplayMode', label: 'Battery display / Batterieanzeige',

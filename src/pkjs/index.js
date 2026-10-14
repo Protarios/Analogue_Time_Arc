@@ -53,6 +53,7 @@ function legacyToClay(config) {
         HourHandColor: String(validOption(config.hourColor, 11, 15)),
         MinuteHandColor: String(validOption(config.minuteColor, 11, 15)),
         TickColor: String(validOption(config.tickColor, 11, 15)),
+        CenterColor: String(validOption(config.centerColor, 11, 15)),
         HourHandStyle: String(validOption(config.hourHandStyle, 0, 1)),
         MinuteHandStyle: String(validOption(config.minuteHandStyle, 0, 2)),
         HourHandLength: String(validOption(config.hourHandLength, 0, 2)),
@@ -89,6 +90,7 @@ function clayToLegacy(settings, previous) {
     config.hourColor = validOption(clayValue(settings, 'HourHandColor', 11), 11, 15);
     config.minuteColor = validOption(clayValue(settings, 'MinuteHandColor', 11), 11, 15);
     config.tickColor = validOption(clayValue(settings, 'TickColor', 11), 11, 15);
+    config.centerColor = validOption(clayValue(settings, 'CenterColor', 11), 11, 15);
     config.hourHandStyle = validOption(clayValue(settings, 'HourHandStyle', 0), 0, 1);
     config.minuteHandStyle = validOption(clayValue(settings, 'MinuteHandStyle', 0), 0, 2);
     config.hourHandLength = validOption(clayValue(settings, 'HourHandLength', 0), 0, 2);
@@ -494,6 +496,7 @@ function sendDisplaySettings() {
         13: packedColors,
         14: typeof config.minuteColor === "number" ? config.minuteColor : 11,
         62: validOption(config.tickColor, 11, 15),
+        63: validOption(config.centerColor, 11, 15),
         21: (config.showSeconds !== false) ? 1 : 0,
         60: batteryMode(config.batteryDisplayMode,
               config.batteryWarningOnly !== false ? 20 : 0),
