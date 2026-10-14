@@ -32,10 +32,11 @@ function colorField(messageKey, label, index) {
 
 var COMPLICATION_OPTIONS = [
   { value: '0', label: 'Empty / Leer' },
-  { value: '1', label: 'Date / Datum' },
+  { value: '1', label: 'Date: large day / Datum groß' },
+  { value: '7', label: 'Date: DD.MM / Datum mit Monat' },
   { value: '2', label: 'Battery / Batterie' },
   { value: '3', label: 'Weather / Wetter' },
-  { value: '4', label: 'Calendar week / Kalenderwoche' },
+  { value: '4', label: 'Calendar week: large / KW groß' },
   { value: '5', label: 'Seconds / Sekunden' },
   { value: '6', label: 'Swatch Internet Time / .beat' }
 ];

@@ -318,3 +318,17 @@ test('three independent complication slots preserve legacy defaults', () => {
     assert.equal(field.options.length,7);
   }
 });
+
+test('both side slots offer large date, DD.MM and large calendar week', () => {
+  for (const side of ['LeftComplication', 'RightComplication']) {
+    const field = fields.find(x => x.messageKey === side);
+    const options = field.options;
+    assert.ok(options.some(x => x.value === '1' && /large day/.test(x.label)));
+    assert.ok(options.some(x => x.value === '7' && /DD.MM/.test(x.label)));
+    assert.ok(options.some(x => x.value === '4' && /large/.test(x.label)));
+  }
+  const app=sandbox({leftComplication:7,rightComplication:4});
+  app.events.showConfiguration();
+  assert.equal(app.clay.settings.LeftComplication, '7');
+  assert.equal(app.clay.settings.RightComplication, '4');
+});

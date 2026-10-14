@@ -54,6 +54,7 @@
 #define COMP_WEEK 4
 #define COMP_SECONDS 5
 #define COMP_BEATS 6
+#define COMP_DATE_DDMM 7
 
 // Rendering of Screenshots
 #define SCREENSHOT_MODE 0
@@ -613,7 +614,9 @@ static void draw_complication_text(GContext *ctx, GRect area, int type,
     char value[48] = "";
     if (type == COMP_EMPTY) return;
     if (type == COMP_DATE) {
-        snprintf(value, sizeof(value), "%02d.%02d.", now->tm_mday, now->tm_mon + 1);
+        snprintf(value, sizeof(value), "%d", now->tm_mday);
+    } else if (type == COMP_DATE_DDMM) {
+        snprintf(value, sizeof(value), "%02d.%02d", now->tm_mday, now->tm_mon + 1);
     } else if (type == COMP_BATTERY) {
         bool visible = s_battery_display_mode == 0 ||
             (s_battery_display_mode > 0 && s_battery_percent <= s_battery_display_mode);
@@ -625,7 +628,7 @@ static void draw_complication_text(GContext *ctx, GRect area, int type,
     } else if (type == COMP_WEEK) {
         char week[8];
         strftime(week, sizeof(week), "%V", now);
-        snprintf(value, sizeof(value), "KW %s", week);
+        snprintf(value, sizeof(value), "%s", week);
     } else if (type == COMP_SECONDS) {
         snprintf(value, sizeof(value), "%02d", now->tm_sec);
     } else if (type == COMP_BEATS) {
@@ -637,7 +640,8 @@ static void draw_complication_text(GContext *ctx, GRect area, int type,
         snprintf(value, sizeof(value), "@%03d", seconds * 1000 / 86400);
     } else return;
     graphics_context_set_text_color(ctx, s_text_color);
-    graphics_draw_text(ctx, value, s_small_font, area,
+    GFont font = (type == COMP_DATE || type == COMP_WEEK) ? s_date_font : s_small_font;
+    graphics_draw_text(ctx, value, font, area,
         GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
 }
 
@@ -837,16 +841,18 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
     bool show_location = s_next_location[0] != '\0' &&
         (s_location_priority || (s_complication_top == COMP_BATTERY && !show_battery));
 
-    int left_x = is_round ? 18 : 8;
-    GRect left_rect = GRect(left_x, centre.y - 15, is_round ? 51 : 47, 24);
-    GRect right_rect = GRect(weather_x - 20, weather_y, 60, 24);
+    // Same left anchor as the legacy large date. Mirrored on the right;
+    // neither side extends into the outer clock tick marks.
+    int slot_width = is_round ? 45 : 44;
+    int slot_inset = is_round ? 24 : 22;
+    GRect left_rect = GRect(slot_inset, centre.y - 17, slot_width, 30);
+    GRect right_rect = GRect(bounds.size.w - slot_inset - slot_width,
+                             centre.y - 17, slot_width, 30);
     GRect top_rect = GRect(4, centre.y - clock_radius + 18, bounds.size.w - 8, 24);
     if (!show_location) {
         draw_complication_text(ctx, top_rect, s_complication_top, now, s_use_fahrenheit);
     }
-    if (s_complication_left != COMP_DATE) {
-        draw_complication_text(ctx, left_rect, s_complication_left, now, s_use_fahrenheit);
-    }
+    draw_complication_text(ctx, left_rect, s_complication_left, now, s_use_fahrenheit);
     if (s_complication_right != COMP_WEATHER) {
         draw_complication_text(ctx, right_rect, s_complication_right, now, s_use_fahrenheit);
     }
@@ -878,90 +884,6 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
 
 
     }
-    // -- Date -------------------------------------------------
-    if (s_complication_left == COMP_DATE) {
-        static const char *days[]   = {"Sun","Mon","Tue","Wed","Thu","Fri","Sat"};
-        static const char *months[] = {"Jan","Feb","Mar","Apr","May","Jun",
-                                       "Jul","Aug","Sep","Oct","Nov","Dec"};
-        char date_str[16];
- 
-        bool show_ticks_local = s_show_ticks;
-        #if SCREENSHOT_MODE
-        show_ticks_local = false;
-        #endif
-
-        if (s_show_ticks || is_round) {
-            // Compact: day-of-month only, placed halfway between
-            // centre and the inner edge of the tick ring / screen edge
-            // at the 6 o'clock position.
-            snprintf(date_str, sizeof(date_str), "%d", now->tm_mday);
-
-            // Determine the bottom reference point:
-            //   Round watch  → inner tip of the 6 o'clock cardinal tick
-            //   Square watch → bottom perimeter minus the arc inset
-            int date_x;
-            int date_y;
-            
-            if (is_round) {
-            
-                date_x = centre.x - clock_radius + 28;
-                date_y = centre.y - 14;
-            
-            } else {
-            
-                date_x = 22;
-                date_y = centre.y - 17;
-            }
-            
-            if (show_shadow) {
-            
-                static const int offsets[4][2] = {
-                    {-1,0},{1,0},{0,-1},{0,1}
-                };
-            
-                for (int o = 0; o < 4; o++) {
-            
-                    graphics_context_set_text_color(ctx, GColorBlack);
-            
-                    graphics_draw_text(
-                        ctx,
-                        date_str,
-                        s_date_font,
-                        GRect(
-                            date_x + offsets[o][0],
-                            date_y + offsets[o][1],
-                            40,
-                            28
-                        ),
-                        GTextOverflowModeWordWrap,
-                        GTextAlignmentCenter,
-                        NULL
-                    );
-                }
-            }
-            
-            graphics_context_set_text_color(ctx, s_text_color);
-            
-            graphics_draw_text(
-                ctx,
-                date_str,
-                s_date_font,
-                GRect(date_x, date_y, 40, 28),
-                GTextOverflowModeWordWrap,
-                GTextAlignmentCenter,
-                NULL
-            );
-
-        } else {
-            // No ticks, square watch: full "Day Mon DD" label at the bottom
-            snprintf(date_str, sizeof(date_str), "%s %s %02d",
-                days[now->tm_wday], months[now->tm_mon], now->tm_mday);
-            graphics_draw_text(ctx, date_str, s_date_font,
-                GRect(0, bounds.size.h - 24, bounds.size.w, 24),
-                GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
-        }
-    }
-  
 
     // Text is optional foreground: weather and date remain behind the hands.
     if (!s_overlay_above_hands) {
