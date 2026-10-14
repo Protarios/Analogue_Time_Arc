@@ -76,7 +76,7 @@ const schemaPalette = ["00FFAA","55FF00","00FFFF","0055FF","AAAAFF","AA00FF","FF
 const fields = itemsFromSchema(schema).filter(item => item.messageKey);
 
 test('Clay defines all existing settings and exactly 10 full calendar entries', () => {
-  assert.equal(fields.length, 49);
+  assert.equal(fields.length, 50);
   const keys = fields.map(item => item.messageKey);
   assert.equal(new Set(keys).size, keys.length);
   for (let i = 0; i < 10; ++i) {
@@ -341,4 +341,54 @@ test('date-with-month and calendar week retain the large side-slot font', () => 
   assert.match(source, /int slot_width = is_round \? 63 : 75;/);
   const options = fields.find(f => f.messageKey === 'LeftComplication').options;
   assert.ok(options.some(o => o.value === '7' && o.label.includes('large DD.MM')));
+});
+
+test('dial has three mark modes with backward-compatible hour-only defaults', () => {
+  const marks=fields.find(x => x.messageKey === 'TickMode');
+  assert.ok(marks);
+  assert.deepEqual(marks.options.map(o => o.value), ['0','1','2']);
+  assert.equal(marks.defaultValue, '1');
+  const old=sandbox({showTicks:false});
+  old.events.showConfiguration();
+  assert.equal(old.clay.settings.TickMode,'0');
+  const app=sandbox({showTicks:true});
+  app.events.showConfiguration();
+  assert.equal(app.clay.settings.TickMode,'1');
+  const settings={};
+  for(const f of fields)settings[f.messageKey]={value:app.clay.settings[f.messageKey] ?? f.defaultValue};
+  settings.TickMode.value='2';
+  app.events.webviewclosed({response:JSON.stringify(settings)});
+  const saved=JSON.parse(app.memory.get('calendarConfig'));
+  assert.equal(saved.tickMode,2);
+  assert.equal(saved.showTicks,true);
+  assert.equal(app.sent[0][71],2);
+  assert.equal(app.sent[0][8],1);
+});
+
+test('battery style is independent of threshold and all complication slots', () => {
+  const style=fields.find(f=>f.messageKey==='BatteryStyle');
+  assert.ok(style);
+  assert.deepEqual(style.options.map(o=>o.value),['0','1']);
+  const app=sandbox({batteryDisplayMode:25,topComplication:2,leftComplication:0,rightComplication:3});
+  app.events.showConfiguration();
+  const settings={};
+  for(const f of fields)settings[f.messageKey]={value:app.clay.settings[f.messageKey] ?? f.defaultValue};
+  settings.BatteryStyle.value='1';
+  app.events.webviewclosed({response:JSON.stringify(settings)});
+  const saved=JSON.parse(app.memory.get('calendarConfig'));
+  assert.equal(saved.batteryStyle,1);
+  assert.equal(saved.batteryDisplayMode,25);
+  assert.equal(saved.topComplication,2);
+  assert.equal(app.sent[0][70],1);
+  assert.equal(app.sent[0][60],25);
+});
+
+test('minute tick geometry and battery icon drawing use dedicated modes', () => {
+  const source=fs.readFileSync(path.join(root,'src/c/watchface.c'),'utf8');
+  assert.match(source,/minute = 0; minute < 60; minute\+\+/);
+  assert.match(source,/!is_hour && s_tick_mode != 2/);
+  assert.match(source,/int tick_width = is_hour \? \(is_cardinal \? 4 : 2\) : 1;/);
+  assert.match(source,/s_battery_percent <= 20 \? GColorRed/);
+  assert.match(source,/s_battery_percent <= 50 \? GColorYellow : GColorBrightGreen/);
+  assert.match(source,/draw_battery_icon\(ctx, area\)/);
 });

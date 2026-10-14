@@ -47,6 +47,8 @@
 #define KEY_COMPLICATION_LEFT     67
 #define KEY_COMPLICATION_RIGHT    68
 #define KEY_COMPLICATION_TOP      69
+#define KEY_BATTERY_STYLE         70
+#define KEY_TICK_MODE             71
 #define COMP_EMPTY 0
 #define COMP_DATE 1
 #define COMP_BATTERY 2
@@ -111,7 +113,8 @@ static bool   s_show_date      = true; // legacy
 static int s_complication_left = COMP_DATE;
 static int s_complication_right = COMP_WEATHER;
 static int s_complication_top = COMP_BATTERY;
-static bool   s_show_ticks     = true;
+static bool   s_show_ticks     = true; // legacy compatibility
+static int    s_tick_mode      = 1;    // 0: none, 1: hours, 2: hours + minutes
 
 // Default colours spread across the palette for visual variety
 static int s_cal_color_idx[MAX_CALENDARS] = { 0, 4, 8, 2, 9, 5, 1, 7, 10, 3 };
@@ -132,7 +135,8 @@ static GBitmap *s_rainbow_bitmap;
 static bool s_overlay_above_hands = false; // default: UNDER hands
 
 static bool s_show_seconds = true;
-static int s_battery_display_mode = 20; // -1 off, 0 always, else threshold
+static int s_battery_display_mode = 20; // -1 old legacy off, 0 always, else threshold
+static int s_battery_style = 0;        // 0: percentage, 1: colored charge icon
 
 static int  s_battery_percent = 100;
 static bool s_battery_charging = false;
@@ -607,6 +611,44 @@ static void draw_appointment_text(GContext *ctx, GRect bounds, GPoint centre,
     }
 }
 
+// Small scalable battery symbol for any complication slot.
+// The 0-100% level is displayed as a proportional green/yellow/red fill.
+static void draw_battery_icon(GContext *ctx, GRect area) {
+    const int body_w = 26;
+    const int body_h = 14;
+    const int x = area.origin.x + (area.size.w - (body_w + 4)) / 2;
+    const int y = area.origin.y + (area.size.h - body_h) / 2;
+
+    GColor outline = s_text_color;
+    GColor level = s_battery_percent <= 20 ? GColorRed :
+                   (s_battery_percent <= 50 ? GColorYellow : GColorBrightGreen);
+    graphics_context_set_stroke_color(ctx, outline);
+    graphics_context_set_stroke_width(ctx, 1);
+    graphics_draw_rect(ctx, GRect(x, y, body_w, body_h));
+
+    // Battery terminal and proportional fill, clamped to the drawable width.
+    graphics_context_set_fill_color(ctx, outline);
+    graphics_fill_rect(ctx, GRect(x + body_w, y + 4, 3, body_h - 8), 0, GCornerNone);
+    int percent = s_battery_percent;
+    if (percent < 0) percent = 0;
+    if (percent > 100) percent = 100;
+    int fill_width = percent * (body_w - 4) / 100;
+    if (percent > 0 && fill_width == 0) fill_width = 1;
+    if (fill_width > 0) {
+        graphics_context_set_fill_color(ctx, level);
+        graphics_fill_rect(ctx, GRect(x + 2, y + 2, fill_width, body_h - 4),
+                           0, GCornerNone);
+    }
+    if (s_battery_charging) {
+        // A contrasting plus sign distinguishes charging from a static level.
+        GColor contrast = percent > 0 ? GColorBlack : outline;
+        graphics_context_set_stroke_color(ctx, contrast);
+        int cx = x + body_w / 2, cy = y + body_h / 2;
+        graphics_draw_line(ctx, GPoint(cx - 3, cy), GPoint(cx + 3, cy));
+        graphics_draw_line(ctx, GPoint(cx, cy - 3), GPoint(cx, cy + 3));
+    }
+}
+
 // Render text-only complications in a slot. Weather/date preserve their legacy
 // layouts in their original slots, handled directly in canvas_update_proc.
 static void draw_complication_text(GContext *ctx, GRect area, int type,
@@ -621,6 +663,10 @@ static void draw_complication_text(GContext *ctx, GRect area, int type,
         bool visible = s_battery_display_mode == 0 ||
             (s_battery_display_mode > 0 && s_battery_percent <= s_battery_display_mode);
         if (!visible) return;
+        if (s_battery_style == 1) {
+            draw_battery_icon(ctx, area);
+            return;
+        }
         snprintf(value, sizeof(value), "%s%d%%", s_battery_charging ? "+" : "", s_battery_percent);
     } else if (type == COMP_WEATHER) {
         if (s_weather_temp == INT_MIN) snprintf(value, sizeof(value), "--");
@@ -736,11 +782,14 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
     if (show_ticks) {
         int arc_inset = 4;
         graphics_context_set_stroke_color(ctx, palette_color(s_tick_color));
-        for (int h = 0; h < 12; h++) {
-            int deg = h * 30;
-            bool is_cardinal = (h % 3 == 0);
-            int tick_len   = is_cardinal ? 18 : 12;
-            int tick_width = is_cardinal ? 4  : 2;
+        // Twelve existing hour marks plus, optionally, 48 short 1-minute marks.
+        for (int minute = 0; minute < 60; minute++) {
+            bool is_hour = (minute % 5 == 0);
+            if (!is_hour && s_tick_mode != 2) continue;
+            int deg = minute * 6;
+            bool is_cardinal = (minute % 15 == 0);
+            int tick_len = is_hour ? (is_cardinal ? 18 : 12) : 5;
+            int tick_width = is_hour ? (is_cardinal ? 4 : 2) : 1;
             graphics_context_set_stroke_width(ctx, tick_width);
             if (is_round) {
                 int32_t trig = DEG_TO_TRIGANGLE(deg);
@@ -922,7 +971,18 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
     if (sd) s_show_date = (sd->value->int32 != 0);
 
     Tuple *st = dict_find(iter, KEY_SHOW_TICKS);
-    if (st) s_show_ticks = (st->value->int32 != 0);
+    if (st) {
+        s_show_ticks = (st->value->int32 != 0);
+        s_tick_mode = s_show_ticks ? 1 : 0;
+    }
+    Tuple *tm = dict_find(iter, KEY_TICK_MODE);
+    if (tm) {
+        int mode = (int)tm->value->int32;
+        if (mode >= 0 && mode <= 2) {
+            s_tick_mode = mode;
+            s_show_ticks = mode != 0;
+        }
+    }
 
     Tuple *hh = dict_find(iter, KEY_HOUR_HAND_COLOR);
     if (hh) s_hour_hand_color = (int)hh->value->int32;
@@ -1004,6 +1064,8 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
         if (mode == -1 || mode == 0 || mode == 10 || mode == 20 ||
             mode == 25 || mode == 50) s_battery_display_mode = mode;
     }
+    Tuple *bs = dict_find(iter, KEY_BATTERY_STYLE);
+    if (bs) s_battery_style = bs->value->int32 == 1 ? 1 : 0;
     
     update_tick_subscription();
   

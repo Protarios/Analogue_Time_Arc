@@ -47,7 +47,12 @@ var config = [
     { type: 'heading', defaultValue: 'Display' },
     { type: 'toggle', messageKey: 'TemperatureUnit', label: 'Temperature in Fahrenheit', defaultValue: false },
 
-    { type: 'toggle', messageKey: 'ShowTicks', label: 'Hour tick marks', defaultValue: true },
+    { type: 'select', messageKey: 'TickMode', label: 'Hour/minute marks / Zifferblattmarkierungen',
+      defaultValue: '1', options: [
+        { label: 'None / Keine', value: '0' },
+        { label: 'Hours only / Nur Stunden', value: '1' },
+        { label: 'Hours + fine minute marks / Stunden und feine Minuten', value: '2' }
+      ] },
     colorField('TickColor', 'Outer hour marks / Ziffernfarbe', 11),
     colorField('CenterColor', 'Center pivot / Zeigermittelpunkt', 11),
     { type: 'toggle', messageKey: 'ShowSeconds', label: 'Show seconds hand', defaultValue: true },
@@ -55,6 +60,11 @@ var config = [
     { type: 'input', messageKey: 'LocationPrefix',
       label: 'Appointment location prefix / Ortspräfix', defaultValue: 'Ort: ',
       attributes: { placeholder: 'Ort:  /  @  /  (empty)' } },
+    { type: 'select', messageKey: 'BatteryStyle', label: 'Battery appearance / Batteriedarstellung',
+      defaultValue: '0', options: [
+        { label: 'Percentage / Prozent', value: '0' },
+        { label: 'Colored battery icon / Farbiges Batteriesymbol', value: '1' }
+      ] },
     { type: 'select', messageKey: 'BatteryDisplayMode', label: 'Battery display / Batterieanzeige',
       defaultValue: '20', options: [
         { label: 'Always / Immer', value: '0' },

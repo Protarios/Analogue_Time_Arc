@@ -73,6 +73,13 @@ function migrationSlot(config, slot, defaultValue) {
     if (slot === 'topComplication') return Number(config.batteryDisplayMode) === -1 ? 0 : 2;
     return 3;
 }
+function tickMode(config) {
+    return validOption(config.tickMode,
+        config.showTicks === false ? 0 : 1, 2);
+}
+function batteryStyle(value) {
+    return validOption(value, 0, 1);
+}
 function batteryMode(value, fallback) {
     var n = Number(value);
     return (n === -1 || n === 0 || n === 10 || n === 20 ||
@@ -85,9 +92,10 @@ function legacyToClay(config) {
         LeftComplication: String(migrationSlot(config, 'leftComplication', 1)),
         RightComplication: String(migrationSlot(config, 'rightComplication', 3)),
         TopComplication: String(migrationSlot(config, 'topComplication', 2)),
-        ShowTicks: config.showTicks !== false,
+        TickMode: String(tickMode(config)),
         ShowSeconds: config.showSeconds !== false,
         OverlayAboveHands: config.overlayAboveHands === true,
+        BatteryStyle: String(batteryStyle(config.batteryStyle)),
         BatteryDisplayMode: String(batteryMode(config.batteryDisplayMode,
             config.batteryWarningOnly !== false ? 20 : 0)),
         HourHandColor: colorIndexToHex(config.hourColor, 11),
@@ -130,9 +138,13 @@ function clayToLegacy(settings, previous) {
         migrationSlot(config,'rightComplication',3)), 3);
     config.topComplication = slotOption(clayValue(settings, 'TopComplication',
         migrationSlot(config,'topComplication',2)), 2);
-    config.showTicks = !!clayValue(settings, 'ShowTicks', true);
+    config.tickMode = validOption(clayValue(settings, 'TickMode',
+        tickMode(config)), tickMode(config), 2);
+    config.showTicks = config.tickMode !== 0; // preserve legacy callers
     config.showSeconds = !!clayValue(settings, 'ShowSeconds', true);
     config.overlayAboveHands = !!clayValue(settings, 'OverlayAboveHands', false);
+    config.batteryStyle = batteryStyle(clayValue(settings, 'BatteryStyle',
+        config.batteryStyle == null ? 0 : config.batteryStyle));
     config.batteryDisplayMode = batteryMode(clayValue(settings, 'BatteryDisplayMode',
         config.batteryWarningOnly !== false ? 20 : 0), 20);
     config.hourColor = colorHexToIndex(clayValue(settings, 'HourHandColor', colorIndexToHex(config.hourColor, 11)), 11);
@@ -554,7 +566,9 @@ function sendDisplaySettings() {
         67: migrationSlot(config, 'leftComplication', 1),
         68: migrationSlot(config, 'rightComplication', 3),
         69: migrationSlot(config, 'topComplication', 2),
-        8:  (config.showTicks !== false) ? 1 : 0,
+        8:  tickMode(config) !== 0 ? 1 : 0,
+        71: tickMode(config),
+        70: batteryStyle(config.batteryStyle),
         12: typeof config.hourColor === "number" ? config.hourColor : 11,
         13: packedColors,
         14: typeof config.minuteColor === "number" ? config.minuteColor : 11,

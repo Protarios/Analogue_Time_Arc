@@ -73,7 +73,9 @@
             "LocationPrefix": 66,
             "LeftComplication": 67,
             "RightComplication": 68,
-            "TopComplication": 69
+            "TopComplication": 69,
+            "BatteryStyle": 70,
+            "TickMode": 71
         },
         "projectType": "native",
         "resources": {
@@ -116,5 +118,5 @@
             "watchface": true
         }
     },
-    "version": "1.12.3"
+    "version": "1.13.0"
 }
