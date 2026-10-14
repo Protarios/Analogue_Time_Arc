@@ -448,6 +448,17 @@ static void draw_clock_hands(GContext *ctx, GPoint centre,
         graphics_fill_circle(ctx, tip_hour, hour_width / 2);
     }
 
+    // Hub belongs below the minute hand: never cover the minute hand with it.
+    if (s_hour_hand_style == 1 || s_min_hand_style != 0) {
+        graphics_context_set_fill_color(ctx,
+            s_min_hand_style == 2 ? GColorVividViolet : palette_color(s_hour_hand_color));
+        graphics_fill_circle(ctx, centre, is_round ? 5 : 7);
+    } else {
+        graphics_context_set_fill_color(ctx, palette_color(s_min_hand_color));
+        graphics_fill_rect(ctx, GRect(centre.x - 3, centre.y - 3, 6, 6), 0, GCornerNone);
+    }
+
+
     // Draw minute hand over hour hand. Rainbow is vector-drawn from the true centre,
     // avoiding the black/offset portion of the old opaque bitmap.
     if (s_min_hand_style == 2) {
@@ -475,15 +486,6 @@ static void draw_clock_hands(GContext *ctx, GPoint centre,
         }
     }
 
-    if (s_hour_hand_style == 1 || s_min_hand_style != 0) {
-        graphics_context_set_fill_color(ctx,
-            s_min_hand_style == 2 ? GColorVividViolet : palette_color(s_hour_hand_color));
-        graphics_fill_circle(ctx, centre, is_round ? 5 : 7);
-    } else {
-        graphics_context_set_fill_color(ctx, palette_color(s_min_hand_color));
-        graphics_fill_rect(ctx, GRect(centre.x - 3, centre.y - 3, 6, 6), 0, GCornerNone);
-    }
-
     if (s_show_seconds) {
         const int sec_len = clock_radius - 6;
         GPoint tip_sec = GPoint(
@@ -493,6 +495,39 @@ static void draw_clock_hands(GContext *ctx, GPoint centre,
         graphics_context_set_stroke_width(ctx, 1);
         graphics_draw_line(ctx, centre, tip_sec);
     }
+}
+
+
+// Current hour position on the outer calendar-arc dial.
+// Intentionally drawn last, over arcs, text and every other complication.
+static void draw_hour_arc_indicator(GContext *ctx, GRect bounds, GPoint centre,
+                                    int clock_radius, bool is_round,
+                                    int hour_angle) {
+    const int marker_len = 12;   // same as ordinary (non-cardinal) tick
+    const int marker_width = 2;
+    GPoint outer, inner;
+    if (is_round) {
+        int sv = sin_lookup(DEG_TO_TRIGANGLE(hour_angle));
+        int cv = cos_lookup(DEG_TO_TRIGANGLE(hour_angle));
+        outer = GPoint(centre.x + sv * clock_radius / TRIG_MAX_RATIO,
+                       centre.y - cv * clock_radius / TRIG_MAX_RATIO);
+        inner = GPoint(centre.x + sv * (clock_radius - marker_len) / TRIG_MAX_RATIO,
+                       centre.y - cv * (clock_radius - marker_len) / TRIG_MAX_RATIO);
+    } else {
+        outer = perimeter_point(bounds, 4, hour_angle);
+        int dx = centre.x - outer.x, dy = centre.y - outer.y;
+        int dist2 = dx * dx + dy * dy;
+        int dist = 16;
+        if (dist2 > 0) {
+            dist = dist2 > 0x10000 ? 256 : 16;
+            for (int i = 0; i < 8; ++i) dist = (dist + dist2 / dist) / 2;
+        }
+        inner = GPoint(outer.x + dx * marker_len / dist,
+                       outer.y + dy * marker_len / dist);
+    }
+    graphics_context_set_stroke_color(ctx, palette_color(s_hour_hand_color));
+    graphics_context_set_stroke_width(ctx, marker_width);
+    graphics_draw_line(ctx, outer, inner);
 }
 
 // --- Canvas draw ---------------------------------------------
@@ -929,6 +964,9 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
     if (s_overlay_above_hands) {
         draw_appointment_text(ctx, bounds, centre, clock_radius, show_location);
     }
+
+    draw_hour_arc_indicator(ctx, bounds, centre, clock_radius, is_round,
+                            hour_angle);
 }
 
 // --- AppMessage -----------------------------------------------
