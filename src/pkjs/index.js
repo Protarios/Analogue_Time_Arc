@@ -64,6 +64,15 @@ function colorHexToIndex(value, fallback) {
     return fallback;
 }
 
+function slotOption(value, fallback) {
+    return validOption(value, fallback, 6);
+}
+function migrationSlot(config, slot, defaultValue) {
+    if (Object.prototype.hasOwnProperty.call(config, slot)) return slotOption(config[slot], defaultValue);
+    if (slot === 'leftComplication') return config.showDate === false ? 0 : 1;
+    if (slot === 'topComplication') return Number(config.batteryDisplayMode) === -1 ? 0 : 2;
+    return 3;
+}
 function batteryMode(value, fallback) {
     var n = Number(value);
     return (n === -1 || n === 0 || n === 10 || n === 20 ||
@@ -73,7 +82,9 @@ function batteryMode(value, fallback) {
 function legacyToClay(config) {
     var result = {
         TemperatureUnit: !!config.useFahrenheit,
-        ShowDate: config.showDate !== false,
+        LeftComplication: String(migrationSlot(config, 'leftComplication', 1)),
+        RightComplication: String(migrationSlot(config, 'rightComplication', 3)),
+        TopComplication: String(migrationSlot(config, 'topComplication', 2)),
         ShowTicks: config.showTicks !== false,
         ShowSeconds: config.showSeconds !== false,
         OverlayAboveHands: config.overlayAboveHands === true,
@@ -113,7 +124,12 @@ function clayToLegacy(settings, previous) {
     // Do not discard unrecognized fields stored by older/newer versions.
     var config = previous;
     config.useFahrenheit = !!clayValue(settings, 'TemperatureUnit', false);
-    config.showDate = !!clayValue(settings, 'ShowDate', true);
+    config.leftComplication = slotOption(clayValue(settings, 'LeftComplication',
+        migrationSlot(config,'leftComplication',1)), 1);
+    config.rightComplication = slotOption(clayValue(settings, 'RightComplication',
+        migrationSlot(config,'rightComplication',3)), 3);
+    config.topComplication = slotOption(clayValue(settings, 'TopComplication',
+        migrationSlot(config,'topComplication',2)), 2);
     config.showTicks = !!clayValue(settings, 'ShowTicks', true);
     config.showSeconds = !!clayValue(settings, 'ShowSeconds', true);
     config.overlayAboveHands = !!clayValue(settings, 'OverlayAboveHands', false);
@@ -527,7 +543,10 @@ function sendDisplaySettings() {
 
     var msg = {
         2:  config.useFahrenheit ? 1 : 0,
-        3:  (config.showDate  !== false) ? 1 : 0,
+        3:  migrationSlot(config, 'leftComplication', 1) === 1 ? 1 : 0,
+        67: migrationSlot(config, 'leftComplication', 1),
+        68: migrationSlot(config, 'rightComplication', 3),
+        69: migrationSlot(config, 'topComplication', 2),
         8:  (config.showTicks !== false) ? 1 : 0,
         12: typeof config.hourColor === "number" ? config.hourColor : 11,
         13: packedColors,

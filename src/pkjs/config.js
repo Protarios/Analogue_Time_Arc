@@ -30,13 +30,22 @@ function colorField(messageKey, label, index) {
     defaultValue: PALETTE[index][1], sunlight: false, layout: COLOR_LAYOUT };
 }
 
+var COMPLICATION_OPTIONS = [
+  { value: '0', label: 'Empty / Leer' },
+  { value: '1', label: 'Date / Datum' },
+  { value: '2', label: 'Battery / Batterie' },
+  { value: '3', label: 'Weather / Wetter' },
+  { value: '4', label: 'Calendar week / Kalenderwoche' },
+  { value: '5', label: 'Seconds / Sekunden' },
+  { value: '6', label: 'Swatch Internet Time / .beat' }
+];
 var config = [
   { type: 'heading', defaultValue: 'Analogue Time Arc' },
   { type: 'text', defaultValue: 'Settings are stored on your phone. No external configuration website is required.' },
   { type: 'section', items: [
     { type: 'heading', defaultValue: 'Display' },
     { type: 'toggle', messageKey: 'TemperatureUnit', label: 'Temperature in Fahrenheit', defaultValue: false },
-    { type: 'toggle', messageKey: 'ShowDate', label: 'Show date', defaultValue: true },
+
     { type: 'toggle', messageKey: 'ShowTicks', label: 'Hour tick marks', defaultValue: true },
     colorField('TickColor', 'Outer hour marks / Ziffernfarbe', 11),
     colorField('CenterColor', 'Center pivot / Zeigermittelpunkt', 11),
@@ -47,13 +56,22 @@ var config = [
       attributes: { placeholder: 'Ort:  /  @  /  (empty)' } },
     { type: 'select', messageKey: 'BatteryDisplayMode', label: 'Battery display / Batterieanzeige',
       defaultValue: '20', options: [
-        { label: 'Off / Aus', value: '-1' },
         { label: 'Always / Immer', value: '0' },
         { label: 'At or below 10%', value: '10' },
         { label: 'At or below 20%', value: '20' },
         { label: 'At or below 25%', value: '25' },
         { label: 'At or below 50%', value: '50' }
       ] }
+  ] },
+  { type: 'section', items: [
+    { type: 'heading', defaultValue: 'Complications / Komplikationen' },
+    { type: 'select', messageKey: 'LeftComplication', label: 'Left / Links',
+      defaultValue: '1', options: COMPLICATION_OPTIONS },
+    { type: 'select', messageKey: 'RightComplication', label: 'Right / Rechts',
+      defaultValue: '3', options: COMPLICATION_OPTIONS },
+    { type: 'select', messageKey: 'TopComplication', label: 'Top / Oben',
+      defaultValue: '2', options: COMPLICATION_OPTIONS },
+    { type: 'text', defaultValue: 'Appointment location temporarily replaces the top complication according to the existing location priority.' }
   ] },
   { type: 'section', items: [
     { type: 'heading', defaultValue: 'Hour hand' },

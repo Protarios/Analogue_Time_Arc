@@ -44,6 +44,16 @@
 #define KEY_SECONDS_COLOR         64
 #define KEY_SECONDS_THICKNESS     65
 #define KEY_LOCATION_PREFIX       66
+#define KEY_COMPLICATION_LEFT     67
+#define KEY_COMPLICATION_RIGHT    68
+#define KEY_COMPLICATION_TOP      69
+#define COMP_EMPTY 0
+#define COMP_DATE 1
+#define COMP_BATTERY 2
+#define COMP_WEATHER 3
+#define COMP_WEEK 4
+#define COMP_SECONDS 5
+#define COMP_BEATS 6
 
 // Rendering of Screenshots
 #define SCREENSHOT_MODE 0
@@ -96,7 +106,10 @@ static Layer  *s_canvas_layer;
 static GColor s_bg_color   = GColorBlack;
 static GColor s_text_color = GColorWhite;
 static bool   s_use_fahrenheit = false;
-static bool   s_show_date      = true;
+static bool   s_show_date      = true; // legacy
+static int s_complication_left = COMP_DATE;
+static int s_complication_right = COMP_WEATHER;
+static int s_complication_top = COMP_BATTERY;
 static bool   s_show_ticks     = true;
 
 // Default colours spread across the palette for visual variety
@@ -593,6 +606,41 @@ static void draw_appointment_text(GContext *ctx, GRect bounds, GPoint centre,
     }
 }
 
+// Render text-only complications in a slot. Weather/date preserve their legacy
+// layouts in their original slots, handled directly in canvas_update_proc.
+static void draw_complication_text(GContext *ctx, GRect area, int type,
+                                   struct tm *now, bool use_fahrenheit) {
+    char value[48] = "";
+    if (type == COMP_EMPTY) return;
+    if (type == COMP_DATE) {
+        snprintf(value, sizeof(value), "%02d.%02d.", now->tm_mday, now->tm_mon + 1);
+    } else if (type == COMP_BATTERY) {
+        bool visible = s_battery_display_mode == 0 ||
+            (s_battery_display_mode > 0 && s_battery_percent <= s_battery_display_mode);
+        if (!visible) return;
+        snprintf(value, sizeof(value), "%s%d%%", s_battery_charging ? "+" : "", s_battery_percent);
+    } else if (type == COMP_WEATHER) {
+        if (s_weather_temp == INT_MIN) snprintf(value, sizeof(value), "--");
+        else snprintf(value, sizeof(value), "%d\xC2\xB0%c", s_weather_temp, use_fahrenheit ? 'F' : 'C');
+    } else if (type == COMP_WEEK) {
+        char week[8];
+        strftime(week, sizeof(week), "%V", now);
+        snprintf(value, sizeof(value), "KW %s", week);
+    } else if (type == COMP_SECONDS) {
+        snprintf(value, sizeof(value), "%02d", now->tm_sec);
+    } else if (type == COMP_BEATS) {
+        // Swatch Internet Time uses UTC+1 without daylight saving adjustment.
+        time_t t = time(NULL);
+        struct tm *utc = gmtime(&t);
+        if (!utc) return;
+        int seconds = ((utc->tm_hour + 1) % 24) * 3600 + utc->tm_min * 60 + utc->tm_sec;
+        snprintf(value, sizeof(value), "@%03d", seconds * 1000 / 86400);
+    } else return;
+    graphics_context_set_text_color(ctx, s_text_color);
+    graphics_draw_text(ctx, value, s_small_font, area,
+        GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
+}
+
 static void canvas_update_proc(Layer *layer, GContext *ctx) {
     GRect   bounds = layer_get_bounds(layer);
     GPoint  centre = GPoint(bounds.size.w / 2, bounds.size.h / 2);
@@ -782,69 +830,27 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
     // ===============================
     // OVERLAY (BEFORE HANDS = UNDER)
     // ===============================
-    // -- Battery -------------------------------------------
+    // Three independent complication slots. Their defaults reproduce the
+    // legacy left-date/right-weather/top-battery layout.
     bool show_battery = s_battery_display_mode == 0 ||
         (s_battery_display_mode > 0 && s_battery_percent <= s_battery_display_mode);
-    
     bool show_location = s_next_location[0] != '\0' &&
-        (s_location_priority || !show_battery);
-    if (show_battery && !show_location) {
-    
-        char batt[16];
-    
-        if (s_battery_charging)
-            snprintf(batt, sizeof(batt), "+%d%%", s_battery_percent);
-        else
-            snprintf(batt, sizeof(batt), "%d%%", s_battery_percent);
-    
-        int batt_y = centre.y - clock_radius + 18;
-    
-        if (show_shadow) {
-    
-            static const int offsets[4][2] = {
-                {-1,0},{1,0},{0,-1},{0,1}
-            };
-    
-            for (int o = 0; o < 4; o++) {
-    
-                graphics_context_set_text_color(ctx, GColorBlack);
-    
-                graphics_draw_text(
-                    ctx,
-                    batt,
-                    s_small_font,
-                    GRect(
-                        offsets[o][0],
-                        batt_y + offsets[o][1],
-                        bounds.size.w,
-                        20
-                    ),
-                    GTextOverflowModeWordWrap,
-                    GTextAlignmentCenter,
-                    NULL
-                );
-            }
-        }
-    
-        graphics_context_set_text_color(
-            ctx,
-            s_battery_percent <= 20
-                ? GColorRed
-                : s_text_color
-        );
-    
-        graphics_draw_text(
-            ctx,
-            batt,
-            s_small_font,
-            GRect(0, batt_y, bounds.size.w, 20),
-            GTextOverflowModeWordWrap,
-            GTextAlignmentCenter,
-            NULL
-        );
-    }  
-  
-  
+        (s_location_priority || (s_complication_top == COMP_BATTERY && !show_battery));
+
+    int left_x = is_round ? 18 : 8;
+    GRect left_rect = GRect(left_x, centre.y - 15, is_round ? 51 : 47, 24);
+    GRect right_rect = GRect(weather_x - 20, weather_y, 60, 24);
+    GRect top_rect = GRect(4, centre.y - clock_radius + 18, bounds.size.w - 8, 24);
+    if (!show_location) {
+        draw_complication_text(ctx, top_rect, s_complication_top, now, s_use_fahrenheit);
+    }
+    if (s_complication_left != COMP_DATE) {
+        draw_complication_text(ctx, left_rect, s_complication_left, now, s_use_fahrenheit);
+    }
+    if (s_complication_right != COMP_WEATHER) {
+        draw_complication_text(ctx, right_rect, s_complication_right, now, s_use_fahrenheit);
+    }
+    if (s_complication_right == COMP_WEATHER) {
     // -- Weather -----------------------------------------------
     char weather_str[32] = "--\xc2\xb0" "C";
     if (s_weather_temp != INT_MIN) {
@@ -870,8 +876,10 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
     if (s_weather_code >= 0)
         draw_weather_icon(ctx, s_weather_code, weather_x - 8, weather_y + 20, show_shadow);
 
+
+    }
     // -- Date -------------------------------------------------
-    if (s_show_date) {
+    if (s_complication_left == COMP_DATE) {
         static const char *days[]   = {"Sun","Mon","Tue","Wed","Thu","Fri","Sat"};
         static const char *months[] = {"Jan","Feb","Mar","Apr","May","Jun",
                                        "Jul","Aug","Sep","Oct","Nov","Dec"};
@@ -954,6 +962,7 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
         }
     }
   
+
     // Text is optional foreground: weather and date remain behind the hands.
     if (!s_overlay_above_hands) {
         draw_appointment_text(ctx, bounds, centre, clock_radius, show_location);
@@ -975,6 +984,15 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
     Tuple *tu = dict_find(iter, KEY_TEMPERATURE_UNIT);
     if (tu) s_use_fahrenheit = (tu->value->int32 != 0);
 
+    Tuple *lcomp = dict_find(iter, KEY_COMPLICATION_LEFT);
+    if (lcomp && lcomp->value->int32 >= 0 && lcomp->value->int32 <= 6)
+        s_complication_left = (int)lcomp->value->int32;
+    Tuple *rcomp = dict_find(iter, KEY_COMPLICATION_RIGHT);
+    if (rcomp && rcomp->value->int32 >= 0 && rcomp->value->int32 <= 6)
+        s_complication_right = (int)rcomp->value->int32;
+    Tuple *tcomp = dict_find(iter, KEY_COMPLICATION_TOP);
+    if (tcomp && tcomp->value->int32 >= 0 && tcomp->value->int32 <= 6)
+        s_complication_top = (int)tcomp->value->int32;
     Tuple *sd = dict_find(iter, KEY_SHOW_DATE);
     if (sd) s_show_date = (sd->value->int32 != 0);
 

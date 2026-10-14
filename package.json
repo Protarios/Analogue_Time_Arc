@@ -70,7 +70,10 @@
             "CenterColor": 63,
             "SecondsColor": 64,
             "SecondsThickness": 65,
-            "LocationPrefix": 66
+            "LocationPrefix": 66,
+            "LeftComplication": 67,
+            "RightComplication": 68,
+            "TopComplication": 69
         },
         "projectType": "native",
         "resources": {
@@ -113,5 +116,5 @@
             "watchface": true
         }
     },
-    "version": "1.11.1"
+    "version": "1.12.0"
 }

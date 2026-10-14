@@ -76,7 +76,7 @@ const schemaPalette = ["00FFAA","55FF00","00FFFF","0055FF","AAAAFF","AA00FF","FF
 const fields = itemsFromSchema(schema).filter(item => item.messageKey);
 
 test('Clay defines all existing settings and exactly 10 full calendar entries', () => {
-  assert.equal(fields.length, 47);
+  assert.equal(fields.length, 49);
   const keys = fields.map(item => item.messageKey);
   assert.equal(new Set(keys).size, keys.length);
   for (let i = 0; i < 10; ++i) {
@@ -191,7 +191,7 @@ test('three hand length presets and optional next location are exposed', () => {
   }
   assert.equal(fields.some(x => x.messageKey === 'ShowNextLocation'), false);
   const battery = fields.find(x => x.messageKey === 'BatteryDisplayMode');
-  assert.deepEqual(battery.options.map(x => x.value), ['-1','0','10','20','25','50']);
+  assert.deepEqual(battery.options.map(x => x.value), ['0','10','20','25','50']);
   assert.match(fields.find(x => x.messageKey === 'HourHandLength').label, /Hour hand length/);
   assert.match(fields.find(x => x.messageKey === 'MinuteHandLength').label, /Minute hand length/);
 });
@@ -304,4 +304,17 @@ test('appointment location prefix can be customized and cleared', () => {
   app.events.webviewclosed({response:JSON.stringify(values)});
   assert.equal(JSON.parse(app.memory.get('calendarConfig')).locationPrefix, '');
   assert.equal(app.sent[0][66], '');
+});
+
+test('three independent complication slots preserve legacy defaults', () => {
+  const app=sandbox({showDate:true,batteryDisplayMode:20});
+  app.events.showConfiguration();
+  assert.equal(app.clay.settings.LeftComplication,'1');
+  assert.equal(app.clay.settings.RightComplication,'3');
+  assert.equal(app.clay.settings.TopComplication,'2');
+  for(const key of ['LeftComplication','RightComplication','TopComplication']){
+    const field=fields.find(x=>x.messageKey===key);
+    assert.ok(field);
+    assert.equal(field.options.length,7);
+  }
 });
