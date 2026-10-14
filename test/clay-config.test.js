@@ -49,6 +49,17 @@ function sandbox(initialConfig) {
       sendAppMessage(msg, ok) { sent.push(msg); if (ok) ok(); }
     },
     localStorage,
+    navigator: {
+      geolocation: {
+        getCurrentPosition(success) {
+          success({coords:{latitude:50.0, longitude:10.0}});
+        }
+      }
+    },
+    XMLHttpRequest: class MockXHR {
+      open() {}
+      send() {}
+    },
     require(name) {
       if (name === '@rebble/clay') return MockClay;
       if (name === './config') return schema;
