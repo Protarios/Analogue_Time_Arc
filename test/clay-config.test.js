@@ -106,7 +106,7 @@ test('legacy saved values are present when opening built-in Clay', () => {
   app.events.showConfiguration();
   assert.equal(app.urls[0], 'data:text/html,clay');
   assert.equal(app.clay.settings.TemperatureUnit, true);
-  assert.equal(app.clay.settings.ShowDate, false);
+  assert.equal(app.clay.settings.LeftComplication, '0');
   assert.equal(app.clay.settings.HourHandStyle, '1');
   assert.equal(app.clay.settings.MinuteHandStyle, '2');
   for(let i=0;i<10;i++){
@@ -315,7 +315,7 @@ test('three independent complication slots preserve legacy defaults', () => {
   for(const key of ['LeftComplication','RightComplication','TopComplication']){
     const field=fields.find(x=>x.messageKey===key);
     assert.ok(field);
-    assert.equal(field.options.length,9);
+    assert.equal(field.options.length,10);
   }
 });
 
@@ -337,7 +337,8 @@ test('date-with-month and calendar week retain the large side-slot font', () => 
   const fs = require('node:fs');
   const source = fs.readFileSync(path.join(root, 'src/c/watchface.c'), 'utf8');
   assert.match(source, /snprintf\(value, sizeof\(value\), "KW %s", week\)/);
-  assert.match(source, /type == COMP_DATE \|\| type == COMP_DATE_DDMM \|\| type == COMP_WEEK/);
+  assert.ok(source.includes('type == COMP_DATE || type == COMP_DATE_DDMM'));
+  assert.ok(source.includes('type == COMP_WEEK || type == COMP_SECONDS'));
   assert.ok(source.includes('int wide_width = MIN(is_round ? 63 : 75, centre.x - slot_inset - 2);'));
   const options = fields.find(f => f.messageKey === 'LeftComplication').options;
   assert.ok(options.some(o => o.value === '7' && o.label.includes('large DD.MM')));
@@ -396,8 +397,8 @@ test('minute tick geometry and battery icon drawing use dedicated modes', () => 
 test('DD.MM is accepted by watch receiver for all three slot IDs', () => {
   const source=fs.readFileSync(path.join(root,'src/c/watchface.c'),'utf8');
   for(const key of ['lcomp','rcomp','tcomp']) {
-    assert.ok(source.includes(key+'->value->int32 <= 7'),
-      'New DD.MM value 7 rejected for '+key);
+    assert.ok(source.includes(key+'->value->int32 <= 9'),
+      'DD.MM or Health variant rejected for '+key);
   }
   assert.ok(source.includes('snprintf(value, sizeof(value), "%02d.%02d"'));
 });
@@ -487,7 +488,7 @@ test('new arc styles default to the prior rounded/calendar-colored rendering', (
   assert.equal(saved.color0,4);
   assert.equal(app.sent[0][72],1);
   assert.equal(app.sent[0][73],2);
-  assert.equal(app.sent[0][13].split(',')[0],4);
+  assert.equal(app.sent[0][13].split(',')[0],'4');
 });
 
 test('stable event seed identifies appointments independently from their order', () => {
@@ -502,7 +503,7 @@ test('stable event seed identifies appointments independently from their order',
   assert.equal(rows.length,2);
   for(const row of rows) {
     assert.equal(row.split(',').length,6);
-    assert.match(row.split(',')[5],/^\\d{1,3}$/);
+    assert.match(row.split(',')[5],/^[0-9]{1,3}$/);
   }
   assert.equal(Number(rows[0].split(',')[5]),app.context.eventColorSeed(e));
 });
