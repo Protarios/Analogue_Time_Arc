@@ -46,7 +46,10 @@ function legacyToClay(config) {
         HourHandColor: String(validOption(config.hourColor, 11, 15)),
         MinuteHandColor: String(validOption(config.minuteColor, 11, 15)),
         HourHandStyle: String(validOption(config.hourHandStyle, 0, 1)),
-        MinuteHandStyle: String(validOption(config.minuteHandStyle, 0, 2))
+        MinuteHandStyle: String(validOption(config.minuteHandStyle, 0, 2)),
+        HourHandLength: String(validOption(config.hourHandLength, 0, 2)),
+        MinuteHandLength: String(validOption(config.minuteHandLength, 0, 2)),
+        ShowNextLocation: config.showNextLocation === true
     };
     for (var i = 0; i < MAX_CALENDARS; i++) {
         result['Calendar' + i + 'Label'] = config['label' + i] || '';
@@ -78,6 +81,9 @@ function clayToLegacy(settings, previous) {
     config.minuteColor = validOption(clayValue(settings, 'MinuteHandColor', 11), 11, 15);
     config.hourHandStyle = validOption(clayValue(settings, 'HourHandStyle', 0), 0, 1);
     config.minuteHandStyle = validOption(clayValue(settings, 'MinuteHandStyle', 0), 0, 2);
+    config.hourHandLength = validOption(clayValue(settings, 'HourHandLength', 0), 0, 2);
+    config.minuteHandLength = validOption(clayValue(settings, 'MinuteHandLength', 0), 0, 2);
+    config.showNextLocation = !!clayValue(settings, 'ShowNextLocation', false);
 
     for (var i = 0; i < MAX_CALENDARS; i++) {
         var label = clayValue(settings, 'Calendar' + i + 'Label', '');
@@ -281,13 +287,14 @@ function expandRRule(dtstart, rruleStr, now, cutoff) {
 }
 
 // Convert a Date+duration into an arc event and push if it falls in window
-function pushArcEvent(events, calendarIndex, start, durationMs, now, cutoff, title, allDay) {
+function pushArcEvent(events, calendarIndex, start, durationMs, now, cutoff, title, allDay, location) {
     var end = new Date(start.getTime() + durationMs);
     if (end <= now || start >= cutoff) return;
     // Retain the label in the meeting list, but do not draw an all-day arc.
     if (allDay) {
         events.push({ calIndex: calendarIndex, startMins: 0, durationMins: 0,
-                      title: title || "", allDay: true });
+                      title: title || "", allDay: true, location: location || "",
+                      startTime: start.getTime(), endTime: end.getTime(), fullStartMins: 0 });
         return;
     }
     var startMins    = (start.getHours() * 60 + start.getMinutes()) % 720;
@@ -297,8 +304,14 @@ function pushArcEvent(events, calendarIndex, start, durationMs, now, cutoff, tit
     durationMins = Math.min(durationMins, 720);
     if (durationMins > 0) {
         events.push({ calIndex: calendarIndex, startMins: startMins, durationMins: durationMins,
-                      title: title || "", allDay: false });
+                      title: title || "", allDay: false, location: location || "",
+                      startTime: start.getTime(), endTime: end.getTime(),
+                      fullStartMins: start.getHours() * 60 + start.getMinutes() });
     }
+}
+
+function unescapeICSText(value) {
+    return (value || "").replace(/\\\\n/gi, " ").replace(/\\\\([,;\\\\])/g, "$1");
 }
 
 function parseICS(raw, calendarIndex, now, cutoff) {
@@ -324,7 +337,8 @@ function parseICS(raw, calendarIndex, now, cutoff) {
                 duration: null,
                 rrule: null,
                 exdates: {},
-                summary: ""
+                summary: "",
+                location: ""
             };
             continue;
         }
@@ -372,7 +386,8 @@ function parseICS(raw, calendarIndex, now, cutoff) {
                             now,
                             cutoff,
                             current.summary,
-                            current.isAllDay
+                            current.isAllDay,
+                            current.location
                         );
                     }
                 } else {
@@ -384,7 +399,8 @@ function parseICS(raw, calendarIndex, now, cutoff) {
                         now,
                         cutoff,
                         current.summary,
-                        current.isAllDay
+                        current.isAllDay,
+                        current.location
                     );
                 }
             }
@@ -425,7 +441,11 @@ function parseICS(raw, calendarIndex, now, cutoff) {
         }
 
         else if (key === "SUMMARY") {
-            current.summary = value;
+            current.summary = unescapeICSText(value);
+        }
+
+        else if (key === "LOCATION") {
+            current.location = unescapeICSText(value);
         }
 
         else if (key === "EXDATE") {
@@ -468,6 +488,9 @@ function sendDisplaySettings() {
         24: config.hourHandStyle === 1 ? 1 : 0,
         25: (config.minuteHandStyle === 1 || config.minuteHandStyle === 2)
                 ? config.minuteHandStyle : 0,
+        56: validOption(config.hourHandLength, 0, 2),
+        57: validOption(config.minuteHandLength, 0, 2),
+        58: config.showNextLocation ? 1 : 0,
     };
     Pebble.sendAppMessage(msg, function() {
         console.log("Display settings sent: " + JSON.stringify(msg));
@@ -484,28 +507,29 @@ function sendEventsToWatch(events) {
 
     var nowMinutes = now.getHours() * 60 + now.getMinutes();
 
+    // Ongoing timed events first, then upcoming starts; all-day notes last.
     events.sort(function(a, b) {
-        // Timed meetings take precedence over all-day notes in the compact list.
         if (!!a.allDay !== !!b.allDay) return a.allDay ? 1 : -1;
-
-        function activeScore(e) {
-            var end = e.startMins + e.durationMins;
-            return (nowMinutes >= e.startMins && nowMinutes < end) ? 0 : 1;
-        }
-
-        var sa = activeScore(a);
-        var sb = activeScore(b);
-
-        if (sa !== sb) return sa - sb;
-
-        return a.startMins - b.startMins;
+        var aActive = !a.allDay && a.startTime <= now.getTime() &&
+                      a.endTime > now.getTime();
+        var bActive = !b.allDay && b.startTime <= now.getTime() &&
+                      b.endTime > now.getTime();
+        if (aActive !== bActive) return aActive ? -1 : 1;
+        return (a.startTime || 0) - (b.startTime || 0);
     });
+
+    // Only timed appointments contribute a location. Prefer currently ongoing
+    // appointment, otherwise the next upcoming. Never use a stale/all-day item.
+    var nextTimed = events.filter(function(event) {
+        return !event.allDay && event.endTime > now.getTime();
+    })[0];
+    var nextLocation = nextTimed && nextTimed.location ? nextTimed.location : "";
 
     events = events.slice(0, 10);
 
     var packed = events.map(function(e) {
         return e.startMins + "," + e.durationMins + "," + e.calIndex + "," +
-               (e.allDay ? 1 : 0);
+               (e.allDay ? 1 : 0) + "," + (e.fullStartMins == null ? e.startMins : e.fullStartMins);
     }).join("|");
 
     var next = events.slice(0, 3);
@@ -520,7 +544,8 @@ function sendEventsToWatch(events) {
 
         18: next[0] ? next[0].calIndex : 0,
         19: next[1] ? next[1].calIndex : 0,
-        20: next[2] ? next[2].calIndex : 0
+        20: next[2] ? next[2].calIndex : 0,
+        59: nextLocation.substring(0, 80)
     };
 
     console.log("Sending " + events.length + " events: " + packed);
@@ -584,6 +609,7 @@ function fetchAllCalendars() {
 
     if (entries.length === 0) {
         console.log("No calendar URLs to fetch");
+        sendEventsToWatch([]);
         return;
     }
 

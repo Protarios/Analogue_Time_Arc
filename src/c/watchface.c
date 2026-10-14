@@ -33,6 +33,10 @@
 #define KEY_OVERLAY_ABOVE_HANDS   23
 #define KEY_HOUR_HAND_STYLE       24
 #define KEY_MIN_HAND_STYLE        25
+#define KEY_HOUR_HAND_LENGTH      56
+#define KEY_MIN_HAND_LENGTH       57
+#define KEY_SHOW_NEXT_LOCATION    58
+#define KEY_NEXT_LOCATION         59
 
 // Rendering of Screenshots
 #define SCREENSHOT_MODE 0
@@ -74,6 +78,7 @@ typedef struct {
     int duration_mins;
     int cal_index;   // 0-9, indexes into s_cal_color_idx
     bool all_day;    // true for date-only VEVENT; never render as arc
+    int full_start_mins; // unwrapped 0-1439 minutes, for 24h event text
 } CalEvent;
 
 // --- State ---------------------------------------------------
@@ -92,6 +97,10 @@ static int s_hour_hand_color = 11;
 static int s_min_hand_color  = 11;
 static int s_hour_hand_style = 0; // 0: classic, 1: Minimalin
 static int s_min_hand_style  = 0; // 0: classic, 1: Minimalin, 2: rainbow
+static int s_hour_hand_length = 0; // short, medium, long
+static int s_min_hand_length = 0;
+static bool s_show_next_location = false;
+static char s_next_location[81];
 static GBitmap *s_rainbow_bitmap;
 static bool s_overlay_above_hands = false; // default: UNDER hands
 
@@ -429,12 +438,23 @@ static void draw_clock_hands(GContext *ctx, GPoint centre,
         centre.x + sin_lookup(DEG_TO_TRIGANGLE(min_angle)) * min_len / TRIG_MAX_RATIO,
         centre.y - cos_lookup(DEG_TO_TRIGANGLE(min_angle)) * min_len / TRIG_MAX_RATIO);
 
-    // Draw the minute hand first to keep the hour hand on top.
-    if (s_min_hand_style == 2 && s_rainbow_bitmap) {
-        graphics_context_set_compositing_mode(ctx, GCompOpSet);
-        graphics_draw_rotated_bitmap(ctx, s_rainbow_bitmap,
-                                     GPoint(5, is_round ? 55 : 81),
-                                     DEG_TO_TRIGANGLE(min_angle), centre);
+    // Draw minute hand first. Rainbow is vector-drawn from the true centre,
+    // avoiding the black/offset portion of the old opaque bitmap.
+    if (s_min_hand_style == 2) {
+        static const int rainbow_colors[] = {7, 9, 10, 1, 2, 3, 5};
+        for (int s = 0; s < 7; ++s) {
+            int r0 = (min_len * s) / 7;
+            int r1 = (min_len * (s + 1)) / 7;
+            int32_t sn = sin_lookup(DEG_TO_TRIGANGLE(min_angle));
+            int32_t cs = cos_lookup(DEG_TO_TRIGANGLE(min_angle));
+            GPoint from = GPoint(centre.x + sn * r0 / TRIG_MAX_RATIO,
+                                 centre.y - cs * r0 / TRIG_MAX_RATIO);
+            GPoint to = GPoint(centre.x + sn * r1 / TRIG_MAX_RATIO,
+                               centre.y - cs * r1 / TRIG_MAX_RATIO);
+            graphics_context_set_stroke_color(ctx, palette_color(rainbow_colors[s]));
+            graphics_context_set_stroke_width(ctx, is_round ? 6 : 8);
+            graphics_draw_line(ctx, from, to);
+        }
     } else {
         graphics_context_set_stroke_color(ctx, palette_color(s_min_hand_color));
         graphics_context_set_stroke_width(ctx, min_width);
@@ -531,9 +551,16 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
     }
 
     // Keep weather-overlay collision checking consistent with hand geometry.
-    if (s_hour_hand_style == 1) hour_len = clock_radius * 47 / 100;
-    if (s_min_hand_style == 1) min_len = clock_radius * 63 / 100;
-    if (s_min_hand_style == 2) min_len = is_round ? 55 : 81;
+    // Three length presets. Short preserves the original Minimalin geometry.
+    // Classic retains its old length when the default setting is selected.
+    if (s_hour_hand_style == 1 || s_hour_hand_length != 0) {
+        static const int hour_percent[] = {47, 67, 88};
+        hour_len = clock_radius * hour_percent[s_hour_hand_length] / 100;
+    }
+    if (s_min_hand_style != 0 || s_min_hand_length != 0) {
+        static const int min_percent[] = {63, 81, 96};
+        min_len = clock_radius * min_percent[s_min_hand_length] / 100;
+    }
 
     int weather_x = (centre.x + (bounds.size.w - centre.x) / 2) - 5;
     int weather_y = centre.y - 11;
@@ -848,7 +875,7 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
         if (strlen(s_event_text[i]) == 0)
             continue;
     
-        int mins = s_events[i].start_mins;
+        int mins = s_events[i].full_start_mins;
         int h = mins / 60;
         int m = mins % 60;
     
@@ -880,6 +907,18 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
             GTextAlignmentCenter,
             NULL
         );
+    }
+
+    // Optional next-appointment location, positioned between 12 and centre.
+    if (s_show_next_location && s_next_location[0] != '\\0') {
+        char label[88];
+        snprintf(label, sizeof(label), "Ort: %s", s_next_location);
+        graphics_context_set_text_color(ctx, s_text_color);
+        graphics_draw_text(ctx, label, s_small_font,
+            GRect(centre.x - clock_radius * 4 / 5,
+                  centre.y - clock_radius * 2 / 3,
+                  clock_radius * 8 / 5, 44),
+            GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
     }
 }
 
@@ -925,6 +964,11 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
             s_events[s_event_count].start_mins    = sm;
             s_events[s_event_count].duration_mins = dm;
             s_events[s_event_count].cal_index     = ci;
+            s_events[s_event_count].full_start_mins = sm;
+            if (*p == ',') {
+                p++;
+                s_events[s_event_count].full_start_mins = parse_int(&p);
+            }
             s_event_count++;
             if (*p == '|') p++; else break;
         }
@@ -963,6 +1007,23 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
     if (c1) s_event_cal[1] = c1->value->int32;
     if (c2) s_event_cal[2] = c2->value->int32;
   
+    Tuple *hl = dict_find(iter, KEY_HOUR_HAND_LENGTH);
+    if (hl) {
+        int length = (int)hl->value->int32;
+        s_hour_hand_length = (length >= 0 && length <= 2) ? length : 0;
+    }
+    Tuple *ml = dict_find(iter, KEY_MIN_HAND_LENGTH);
+    if (ml) {
+        int length = (int)ml->value->int32;
+        s_min_hand_length = (length >= 0 && length <= 2) ? length : 0;
+    }
+    Tuple *sl = dict_find(iter, KEY_SHOW_NEXT_LOCATION);
+    if (sl) s_show_next_location = sl->value->int32 != 0;
+    Tuple *loc = dict_find(iter, KEY_NEXT_LOCATION);
+    if (loc) {
+        snprintf(s_next_location, sizeof(s_next_location), "%s", loc->value->cstring);
+    }
+
     Tuple *ov = dict_find(iter, KEY_OVERLAY_ABOVE_HANDS);
     if (ov) s_overlay_above_hands = (ov->value->int32 != 0);
 

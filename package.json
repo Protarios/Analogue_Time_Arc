@@ -59,7 +59,11 @@
             "TemperatureUnit": 2,
             "TextColor": 1,
             "WeatherCode": 7,
-            "WeatherTemp": 6
+            "WeatherTemp": 6,
+            "HourHandLength": 56,
+            "MinuteHandLength": 57,
+            "ShowNextLocation": 58,
+            "NextLocation": 59
         },
         "projectType": "native",
         "resources": {
@@ -102,5 +106,5 @@
             "watchface": true
         }
     },
-    "version": "1.6.1"
+    "version": "1.7.0"
 }

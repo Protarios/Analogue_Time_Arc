@@ -23,7 +23,8 @@ var config = [
     { type: 'toggle', messageKey: 'ShowTicks', label: 'Hour tick marks', defaultValue: true },
     { type: 'toggle', messageKey: 'ShowSeconds', label: 'Show seconds hand', defaultValue: true },
     { type: 'toggle', messageKey: 'OverlayAboveHands', label: 'Complications above hands', defaultValue: false },
-    { type: 'toggle', messageKey: 'BatteryWarningOnly', label: 'Battery warning only (20%)', defaultValue: true }
+    { type: 'toggle', messageKey: 'BatteryWarningOnly', label: 'Battery warning only (20%)', defaultValue: true },
+    { type: 'toggle', messageKey: 'ShowNextLocation', label: 'Show next appointment location', defaultValue: false }
   ] },
   { type: 'section', items: [
     { type: 'heading', defaultValue: 'Hour hand' },
@@ -31,6 +32,11 @@ var config = [
       options: [
         { label: 'Classic (original)', value: '0' },
         { label: 'Minimalin (bold)', value: '1' }
+      ] },
+    { type: 'select', messageKey: 'HourHandLength', label: 'Length', defaultValue: '0', options: [
+        { label: 'Short (previous bold length)', value: '0' },
+        { label: 'Medium', value: '1' },
+        { label: 'Long (near dial edge)', value: '2' }
       ] },
     { type: 'select', messageKey: 'HourHandColor', label: 'Color', defaultValue: '11', options: COLOR_OPTIONS }
   ] },
@@ -41,6 +47,11 @@ var config = [
         { label: 'Classic (original)', value: '0' },
         { label: 'Minimalin (bold)', value: '1' },
         { label: 'Minimalin Rainbow', value: '2' }
+      ] },
+    { type: 'select', messageKey: 'MinuteHandLength', label: 'Length', defaultValue: '0', options: [
+        { label: 'Short (previous bold length)', value: '0' },
+        { label: 'Medium', value: '1' },
+        { label: 'Long (near dial edge)', value: '2' }
       ] },
     { type: 'select', messageKey: 'MinuteHandColor', label: 'Color (not used in Rainbow mode)',
       defaultValue: '11', options: COLOR_OPTIONS }

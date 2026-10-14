@@ -75,7 +75,7 @@ const defaults = [0,4,8,2,9,5,1,7,10,3];
 const fields = itemsFromSchema(schema).filter(item => item.messageKey);
 
 test('Clay defines all existing settings and exactly 10 full calendar entries', () => {
-  assert.equal(fields.length, 40);
+  assert.equal(fields.length, 43);
   const keys = fields.map(item => item.messageKey);
   assert.equal(new Set(keys).size, keys.length);
   for (let i = 0; i < 10; ++i) {
@@ -179,4 +179,13 @@ test('PebbleKit startup does not require Clay until settings are opened', () => 
   assert.ok(events.ready);
   assert.ok(events.showConfiguration);
   assert.doesNotThrow(() => events.showConfiguration());
+});
+
+test('three hand length presets and optional next location are exposed', () => {
+  for (const key of ['HourHandLength','MinuteHandLength']) {
+    const field = fields.find(x => x.messageKey === key);
+    assert.ok(field);
+    assert.deepEqual(field.options.map(x => x.value), ['0','1','2']);
+  }
+  assert.equal(fields.find(x => x.messageKey === 'ShowNextLocation').defaultValue, false);
 });

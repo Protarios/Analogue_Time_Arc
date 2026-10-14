@@ -36,3 +36,10 @@ pebble build
 The build already bundles `src/pkjs/**/*.js`; `enableMultiJS` is enabled. After installation, open the watchface settings in the Pebble app. The external `pebble-analogue-config` repository is no longer required.
 
 Run the JavaScript regression tests with `npm test` (Node.js). The Pebble SDK/device build must still be verified separately.
+
+## New in 1.7.0
+
+- Three independent hour/minute hand lengths (Short, Medium, Long). Short keeps the previous Minimalin proportions; Long approaches the dial edge. Applies to Classic, Minimalin and Rainbow minute hands.
+- Rainbow minute hand is rendered as colored segments from the exact clock center, removing opaque black bitmap artifacts.
+- Appointment start times in the text list use full 24-hour local time; arc geometry continues to repeat every 12 hours.
+- Optional `Show next appointment location` Clay setting: displays ICS `LOCATION` above the dial center for the ongoing timed appointment, or otherwise the next scheduled timed appointment within the fetched 12-hour window. Empty location values are suppressed.
