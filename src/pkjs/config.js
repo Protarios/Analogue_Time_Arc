@@ -33,7 +33,7 @@ function colorField(messageKey, label, index) {
 var COMPLICATION_OPTIONS = [
   { value: '0', label: 'Empty / Leer' },
   { value: '1', label: 'Date: large day / Datum groß' },
-  { value: '7', label: 'Date: DD.MM / Datum mit Monat' },
+  { value: '7', label: 'Date: large DD.MM / Datum mit Monat groß' },
   { value: '2', label: 'Battery / Batterie' },
   { value: '3', label: 'Weather / Wetter' },
   { value: '4', label: 'Calendar week: large / KW groß' },

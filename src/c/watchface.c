@@ -628,7 +628,7 @@ static void draw_complication_text(GContext *ctx, GRect area, int type,
     } else if (type == COMP_WEEK) {
         char week[8];
         strftime(week, sizeof(week), "%V", now);
-        snprintf(value, sizeof(value), "%s", week);
+        snprintf(value, sizeof(value), "KW %s", week);
     } else if (type == COMP_SECONDS) {
         snprintf(value, sizeof(value), "%02d", now->tm_sec);
     } else if (type == COMP_BEATS) {
@@ -640,7 +640,8 @@ static void draw_complication_text(GContext *ctx, GRect area, int type,
         snprintf(value, sizeof(value), "@%03d", seconds * 1000 / 86400);
     } else return;
     graphics_context_set_text_color(ctx, s_text_color);
-    GFont font = (type == COMP_DATE || type == COMP_WEEK) ? s_date_font : s_small_font;
+    GFont font = (type == COMP_DATE || type == COMP_DATE_DDMM || type == COMP_WEEK)
+        ? s_date_font : s_small_font;
     graphics_draw_text(ctx, value, font, area,
         GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
 }
@@ -843,7 +844,9 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
 
     // Same left anchor as the legacy large date. Mirrored on the right;
     // neither side extends into the outer clock tick marks.
-    int slot_width = is_round ? 45 : 44;
+    // The large date (DD.MM) and KW NN need more width than a day number.
+    // Expand inward, not toward the hour ticks at either screen edge.
+    int slot_width = is_round ? 63 : 75;
     int slot_inset = is_round ? 24 : 22;
     GRect left_rect = GRect(slot_inset, centre.y - 17, slot_width, 30);
     GRect right_rect = GRect(bounds.size.w - slot_inset - slot_width,

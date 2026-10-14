@@ -332,3 +332,13 @@ test('both side slots offer large date, DD.MM and large calendar week', () => {
   assert.equal(app.clay.settings.LeftComplication, '7');
   assert.equal(app.clay.settings.RightComplication, '4');
 });
+
+test('date-with-month and calendar week retain the large side-slot font', () => {
+  const fs = require('node:fs');
+  const source = fs.readFileSync(path.join(root, 'src/c/watchface.c'), 'utf8');
+  assert.match(source, /snprintf\(value, sizeof\(value\), "KW %s", week\)/);
+  assert.match(source, /type == COMP_DATE \|\| type == COMP_DATE_DDMM \|\| type == COMP_WEEK/);
+  assert.match(source, /int slot_width = is_round \? 63 : 75;/);
+  const options = fields.find(f => f.messageKey === 'LeftComplication').options;
+  assert.ok(options.some(o => o.value === '7' && o.label.includes('large DD.MM')));
+});
