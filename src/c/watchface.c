@@ -126,23 +126,21 @@ static GFont s_date_font;
 
 // --- Square perimeter helper ----------------------------------
 static GPoint perimeter_point(GRect bounds, int inset, int angle_deg) {
-    int w = bounds.size.w;
-    int h = bounds.size.h;
-    int perim = 2 * (w + h);
-    int px = (w / 2) + (angle_deg * perim / 360);
-    px = px % perim;
-    if (px < 0) px += perim;
-    int x, y;
-    if (px < w) {
-        x = px;              y = inset;
-    } else if (px < w + h) {
-        x = w - 1 - inset;  y = px - w;
-    } else if (px < 2 * w + h) {
-        x = (2 * w + h - 1) - px; y = h - 1 - inset;
-    } else {
-        x = inset;           y = perim - px;
-    }
-    return GPoint(x, y);
+    // Intersect the watch-hand ray with the inset rectangular dial boundary.
+    // Linear perimeter interpolation distorts the clock angles.
+    const int32_t half_w = bounds.size.w / 2 - 1 - inset;
+    const int32_t half_h = bounds.size.h / 2 - 1 - inset;
+    const int32_t sn = sin_lookup(DEG_TO_TRIGANGLE(angle_deg));
+    const int32_t cv = cos_lookup(DEG_TO_TRIGANGLE(angle_deg));
+    const int32_t abs_sn = sn < 0 ? -sn : sn;
+    const int32_t abs_cv = cv < 0 ? -cv : cv;
+    int32_t radius_x = abs_sn ? half_w * TRIG_MAX_RATIO / abs_sn : INT32_MAX;
+    int32_t radius_y = abs_cv ? half_h * TRIG_MAX_RATIO / abs_cv : INT32_MAX;
+    int32_t radius = radius_x < radius_y ? radius_x : radius_y;
+    const int cx = bounds.origin.x + bounds.size.w / 2;
+    const int cy = bounds.origin.y + bounds.size.h / 2;
+    return GPoint(cx + sn * radius / TRIG_MAX_RATIO,
+                  cy - cv * radius / TRIG_MAX_RATIO);
 }
 
 // --- Proximity helpers ----------------------------------------
