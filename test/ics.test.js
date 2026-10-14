@@ -77,3 +77,37 @@ test('24h time and ICS location survive recurrence/event conversion', () => {
   assert.equal(events[0].location, 'Building, Room 3');
 });
 
+
+test('tomorrow morning does not appear tonight at the same 12-hour dial position', () => {
+  const now = new Date(2026, 9, 13, 20, 15);
+  const cutoff = new Date(2026, 9, 14, 8, 15);
+  const raw = [
+    'BEGIN:VEVENT', 'DTSTART:20261014T080000', 'DTEND:20261014T090000',
+    'SUMMARY:Tomorrow morning', 'END:VEVENT'
+  ].join('\n');
+  const events = context.parseICS(raw, 0, now, cutoff);
+  assert.equal(events.length, 0);
+});
+
+test('today late appointment still appears when the horizon crosses midnight', () => {
+  const now = new Date(2026, 9, 13, 20, 15);
+  const cutoff = new Date(2026, 9, 14, 8, 15);
+  const raw = [
+    'BEGIN:VEVENT', 'DTSTART:20261013T223000', 'DTEND:20261013T233000',
+    'SUMMARY:Tonight', 'END:VEVENT'
+  ].join('\n');
+  const events = context.parseICS(raw, 0, now, cutoff);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].fullStartMins, 22 * 60 + 30);
+});
+
+test('appointment starting tonight and ending after midnight stays visible', () => {
+  const now = new Date(2026, 9, 13, 23, 45);
+  const cutoff = new Date(2026, 9, 14, 11, 45);
+  const raw = [
+    'BEGIN:VEVENT', 'DTSTART:20261013T233000', 'DTEND:20261014T003000',
+    'SUMMARY:Overnight', 'END:VEVENT'
+  ].join('\n');
+  const events = context.parseICS(raw, 0, now, cutoff);
+  assert.equal(events.length, 1);
+});

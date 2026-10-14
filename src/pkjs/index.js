@@ -355,6 +355,13 @@ function expandRRule(dtstart, rruleStr, now, cutoff) {
 function pushArcEvent(events, calendarIndex, start, durationMs, now, cutoff, title, allDay, location) {
     var end = new Date(start.getTime() + durationMs);
     if (end <= now || start >= cutoff) return;
+
+    // Calendar arcs are anchored to today's 12-hour dial. An appointment
+    // starting tomorrow can have exactly the same dial angle as "now" and
+    // must not masquerade as an event occurring today. Retain overnight
+    // events that began yesterday and are still active.
+    var midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    if (start >= midnight) return;
     // Retain the label in the meeting list, but do not draw an all-day arc.
     if (allDay) {
         events.push({ calIndex: calendarIndex, startMins: 0, durationMins: 0,
@@ -730,7 +737,9 @@ function fetchAllCalendars() {
     }
 
     var now    = new Date();
-    var cutoff = new Date(now.getTime() + 12 * 60 * 60 * 1000);
+    var horizon = new Date(now.getTime() + 12 * 60 * 60 * 1000);
+    var tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    var cutoff = horizon < tomorrow ? horizon : tomorrow;
     console.log("Fetching " + entries.length + " calendars");
 
     var allEvents = [], pending = entries.length;
