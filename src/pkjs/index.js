@@ -1,7 +1,87 @@
 // index.js — PebbleKit JS
-console.log("index.js v11 loaded");
+console.log("index.js v12 Clay loaded");
 
 var MAX_CALENDARS = 10;
+
+// Keep the original "calendarConfig" schema: weather, calendar fetching and
+// the watch-side C renderer already consume these exact names/indices.
+// Clay stores its form state separately under "clay-settings".
+var Clay = require('@rebble/clay');
+var claySchema = require('./config');
+var clay = new Clay(claySchema, null, { autoHandleEvents: false });
+var DEFAULT_CAL_COLORS = [0, 4, 8, 2, 9, 5, 1, 7, 10, 3];
+
+function loadSavedConfig() {
+    try {
+        var value = JSON.parse(localStorage.getItem('calendarConfig') || '{}');
+        return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+    } catch (e) {
+        console.log('Invalid saved watchface config: ' + e);
+        return {};
+    }
+}
+
+function validOption(value, fallback, max) {
+    var number = Number(value);
+    return isFinite(number) && Math.floor(number) === number && number >= 0 && number <= max
+        ? number : fallback;
+}
+
+function legacyToClay(config) {
+    var result = {
+        TemperatureUnit: !!config.useFahrenheit,
+        ShowDate: config.showDate !== false,
+        ShowTicks: config.showTicks !== false,
+        ShowSeconds: config.showSeconds !== false,
+        OverlayAboveHands: config.overlayAboveHands === true,
+        BatteryWarningOnly: config.batteryWarningOnly !== false,
+        HourHandColor: String(validOption(config.hourColor, 11, 15)),
+        MinuteHandColor: String(validOption(config.minuteColor, 11, 15)),
+        HourHandStyle: String(validOption(config.hourHandStyle, 0, 1)),
+        MinuteHandStyle: String(validOption(config.minuteHandStyle, 0, 2))
+    };
+    for (var i = 0; i < MAX_CALENDARS; i++) {
+        result['Calendar' + i + 'Label'] = config['label' + i] || '';
+        result['Calendar' + i + 'Url'] = config['url' + i] || '';
+        result['Calendar' + i + 'Color'] =
+            String(validOption(config['color' + i], DEFAULT_CAL_COLORS[i], 15));
+    }
+    return result;
+}
+
+function clayValue(settings, key, fallback) {
+    var item = settings[key];
+    if (item && typeof item === 'object' && Object.prototype.hasOwnProperty.call(item, 'value')) {
+        return item.value;
+    }
+    return fallback;
+}
+
+function clayToLegacy(settings, previous) {
+    // Do not discard unrecognized fields stored by older/newer versions.
+    var config = previous;
+    config.useFahrenheit = !!clayValue(settings, 'TemperatureUnit', false);
+    config.showDate = !!clayValue(settings, 'ShowDate', true);
+    config.showTicks = !!clayValue(settings, 'ShowTicks', true);
+    config.showSeconds = !!clayValue(settings, 'ShowSeconds', true);
+    config.overlayAboveHands = !!clayValue(settings, 'OverlayAboveHands', false);
+    config.batteryWarningOnly = !!clayValue(settings, 'BatteryWarningOnly', true);
+    config.hourColor = validOption(clayValue(settings, 'HourHandColor', 11), 11, 15);
+    config.minuteColor = validOption(clayValue(settings, 'MinuteHandColor', 11), 11, 15);
+    config.hourHandStyle = validOption(clayValue(settings, 'HourHandStyle', 0), 0, 1);
+    config.minuteHandStyle = validOption(clayValue(settings, 'MinuteHandStyle', 0), 0, 2);
+
+    for (var i = 0; i < MAX_CALENDARS; i++) {
+        var label = clayValue(settings, 'Calendar' + i + 'Label', '');
+        var url = clayValue(settings, 'Calendar' + i + 'Url', '');
+        config['label' + i] = String(label == null ? '' : label).trim();
+        config['url' + i] = String(url == null ? '' : url).trim();
+        config['color' + i] = validOption(
+            clayValue(settings, 'Calendar' + i + 'Color', DEFAULT_CAL_COLORS[i]),
+            DEFAULT_CAL_COLORS[i], 15);
+    }
+    return config;
+}
 
 // Cached geolocation position
 var s_last_lat = null;
@@ -553,29 +633,30 @@ Pebble.addEventListener("ready", function() {
 });
 
 Pebble.addEventListener("showConfiguration", function() {
-    var config = localStorage.getItem("calendarConfig") || "{}";
-    Pebble.openURL("https://protarios.github.io/pebble-analogue-config/index.html?config="
-                   + encodeURIComponent(config));
-    //Pebble.openURL("https://your-config-page/index.html?config="char
-    //                + encodeURIComponent(config));
+    // Migrate existing HTML-page settings, including all 10 ICS URLs, without
+    // overwriting the existing calendarConfig or depending on external hosting.
+    if (localStorage.getItem('calendarConfig') !== null) {
+        clay.setSettings(legacyToClay(loadSavedConfig()));
+    }
+    Pebble.openURL(clay.generateUrl());
 });
 
 Pebble.addEventListener("webviewclosed", function(e) {
-    if (e.response && e.response !== "CANCELLED") {
-        try {
-            var raw = e.response;
-            var decoded;
-            try { decoded = decodeURIComponent(raw); } catch(err) { decoded = raw; }
-            var config = JSON.parse(decoded);
-            localStorage.setItem("calendarConfig", JSON.stringify(config));
-            console.log("Config saved");
-            // Reset failure counts so newly configured URLs get a fresh attempt
-            s_cal_fail_count = [0,0,0,0,0,0,0,0,0,0];
-            sendDisplaySettings();
-            refreshWeather(config);
-            fetchAllCalendars();
-        } catch (err) {
-            console.log("Failed to parse config response: " + err);
-        }
+    if (!e || !e.response || e.response === "CANCELLED") return;
+
+    try {
+        // Suppress Clay's default bulk AppMessage: the C watchface only needs
+        // the compact legacy messages, especially the packed calendar colors.
+        var settings = clay.getSettings(e.response, false);
+        var config = clayToLegacy(settings, loadSavedConfig());
+        localStorage.setItem('calendarConfig', JSON.stringify(config));
+        console.log('Clay config saved');
+        // Newly configured ICS URLs should not inherit fetch failure counts.
+        s_cal_fail_count = [0,0,0,0,0,0,0,0,0,0];
+        sendDisplaySettings();
+        refreshWeather(config);
+        fetchAllCalendars();
+    } catch (err) {
+        console.log('Failed to parse Clay response: ' + err);
     }
 });

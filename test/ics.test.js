@@ -10,7 +10,16 @@ const context = {
   Date, Math, JSON,
   setInterval() {},
   Pebble: { addEventListener() {}, sendAppMessage() {}, openURL() {} },
-  localStorage: { getItem() { return '{}'; }, setItem() {} }
+  localStorage: { getItem() { return '{}'; }, setItem() {} },
+  require(name) {
+    if (name === '@rebble/clay') return class MockClay {
+      setSettings() {}
+      generateUrl() { return 'data:text/html,Mock'; }
+      getSettings() { return {}; }
+    };
+    if (name === './config') return [];
+    throw new Error('Unexpected require: ' + name);
+  }
 };
 vm.createContext(context);
 vm.runInContext(source, context);

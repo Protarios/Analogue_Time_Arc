@@ -1,6 +1,8 @@
 {
     "author": "dfrench47@gmail.com",
-    "dependencies": {},
+    "dependencies": {
+        "@rebble/clay": "^1.1.0"
+    },
     "keywords": [],
     "name": "ata",
     "pebble": {
@@ -20,7 +22,44 @@
             "WeatherCode": 7,
             "WeatherTemp": 6,
             "HourHandStyle": 24,
-            "MinuteHandStyle": 25
+            "MinuteHandStyle": 25,
+            "ShowTicks": 8,
+            "HourHandColor": 12,
+            "CalendarColors": 13,
+            "MinuteHandColor": 14,
+            "ShowSeconds": 21,
+            "BatteryWarningOnly": 22,
+            "OverlayAboveHands": 23,
+            "Calendar0Label": 26,
+            "Calendar0Url": 27,
+            "Calendar0Color": 28,
+            "Calendar1Label": 29,
+            "Calendar1Url": 30,
+            "Calendar1Color": 31,
+            "Calendar2Label": 32,
+            "Calendar2Url": 33,
+            "Calendar2Color": 34,
+            "Calendar3Label": 35,
+            "Calendar3Url": 36,
+            "Calendar3Color": 37,
+            "Calendar4Label": 38,
+            "Calendar4Url": 39,
+            "Calendar4Color": 40,
+            "Calendar5Label": 41,
+            "Calendar5Url": 42,
+            "Calendar5Color": 43,
+            "Calendar6Label": 44,
+            "Calendar6Url": 45,
+            "Calendar6Color": 46,
+            "Calendar7Label": 47,
+            "Calendar7Url": 48,
+            "Calendar7Color": 49,
+            "Calendar8Label": 50,
+            "Calendar8Url": 51,
+            "Calendar8Color": 52,
+            "Calendar9Label": 53,
+            "Calendar9Url": 54,
+            "Calendar9Color": 55
         },
         "projectType": "native",
         "resources": {
@@ -63,5 +102,8 @@
             "watchface": true
         }
     },
-    "version": "1.4.0"
+    "version": "1.5.0",
+    "scripts": {
+        "test": "node --test test/*.test.js"
+    }
 }
