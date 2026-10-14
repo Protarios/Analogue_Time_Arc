@@ -83,6 +83,8 @@ function legacyToClay(config) {
         MinuteHandColor: colorIndexToHex(config.minuteColor, 11),
         TickColor: colorIndexToHex(config.tickColor, 11),
         CenterColor: colorIndexToHex(config.centerColor, 11),
+        SecondsColor: colorIndexToHex(config.secondsColor, 7),
+        SecondsThickness: String(validOption(config.secondsThickness, 1, 3) || 1),
         HourHandStyle: String(validOption(config.hourHandStyle, 0, 1)),
         MinuteHandStyle: String(validOption(config.minuteHandStyle, 0, 2)),
         HourHandLength: String(validOption(config.hourHandLength, 0, 2)),
@@ -120,6 +122,8 @@ function clayToLegacy(settings, previous) {
     config.minuteColor = colorHexToIndex(clayValue(settings, 'MinuteHandColor', colorIndexToHex(config.minuteColor, 11)), 11);
     config.tickColor = colorHexToIndex(clayValue(settings, 'TickColor', colorIndexToHex(config.tickColor, 11)), 11);
     config.centerColor = colorHexToIndex(clayValue(settings, 'CenterColor', colorIndexToHex(config.centerColor, 11)), 11);
+    config.secondsColor = colorHexToIndex(clayValue(settings, 'SecondsColor', colorIndexToHex(config.secondsColor, 7)), 7);
+    config.secondsThickness = validOption(clayValue(settings, 'SecondsThickness', config.secondsThickness || 1), 1, 3) || 1;
     config.hourHandStyle = validOption(clayValue(settings, 'HourHandStyle', 0), 0, 1);
     config.minuteHandStyle = validOption(clayValue(settings, 'MinuteHandStyle', 0), 0, 2);
     config.hourHandLength = validOption(clayValue(settings, 'HourHandLength', 0), 0, 2);
@@ -527,6 +531,8 @@ function sendDisplaySettings() {
         14: typeof config.minuteColor === "number" ? config.minuteColor : 11,
         62: validOption(config.tickColor, 11, 15),
         63: validOption(config.centerColor, 11, 15),
+        64: validOption(config.secondsColor, 7, 15),
+        65: validOption(config.secondsThickness, 1, 3) || 1,
         21: (config.showSeconds !== false) ? 1 : 0,
         60: batteryMode(config.batteryDisplayMode,
               config.batteryWarningOnly !== false ? 20 : 0),

@@ -67,7 +67,9 @@
             "BatteryDisplayMode": 60,
             "LocationPriority": 61,
             "TickColor": 62,
-            "CenterColor": 63
+            "CenterColor": 63,
+            "SecondsColor": 64,
+            "SecondsThickness": 65
         },
         "projectType": "native",
         "resources": {
@@ -110,5 +112,5 @@
             "watchface": true
         }
     },
-    "version": "1.10.2"
+    "version": "1.11.0"
 }

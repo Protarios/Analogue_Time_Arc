@@ -41,6 +41,8 @@
 #define KEY_LOCATION_PRIORITY     61
 #define KEY_TICK_COLOR            62
 #define KEY_CENTER_COLOR          63
+#define KEY_SECONDS_COLOR         64
+#define KEY_SECONDS_THICKNESS     65
 
 // Rendering of Screenshots
 #define SCREENSHOT_MODE 0
@@ -102,6 +104,8 @@ static int s_hour_hand_color = 11;
 static int s_min_hand_color  = 11;
 static int s_tick_color      = 11; // formerly shared with minute hand
 static int s_center_color    = 11; // independent hub color
+static int s_seconds_color   = 7;  // red as before
+static int s_seconds_thickness = 1; // original line width is 1 pixel
 static int s_hour_hand_style = 0; // 0: classic, 1: Minimalin
 static int s_min_hand_style  = 0; // 0: classic, 1: Minimalin, 2: rainbow
 static int s_hour_hand_length = 0; // short, medium, long
@@ -483,8 +487,8 @@ static void draw_clock_hands(GContext *ctx, GPoint centre,
         GPoint tip_sec = GPoint(
             centre.x + sin_lookup(DEG_TO_TRIGANGLE(sec_angle)) * sec_len / TRIG_MAX_RATIO,
             centre.y - cos_lookup(DEG_TO_TRIGANGLE(sec_angle)) * sec_len / TRIG_MAX_RATIO);
-        graphics_context_set_stroke_color(ctx, GColorRed);
-        graphics_context_set_stroke_width(ctx, 1);
+        graphics_context_set_stroke_color(ctx, palette_color(s_seconds_color));
+        graphics_context_set_stroke_width(ctx, s_seconds_thickness);
         graphics_draw_line(ctx, centre, tip_sec);
     }
     // The independently colored central pivot must cover both hands.
@@ -1033,6 +1037,17 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
     Tuple *mh = dict_find(iter, KEY_MIN_HAND_COLOR);
     if (mh) s_min_hand_color = (int)mh->value->int32;
     
+    Tuple *sc = dict_find(iter, KEY_SECONDS_COLOR);
+    if (sc) {
+        int idx = (int)sc->value->int32;
+        s_seconds_color = (idx >= 0 && idx < 16) ? idx : 7;
+    }
+    Tuple *sw = dict_find(iter, KEY_SECONDS_THICKNESS);
+    if (sw) {
+        int width = (int)sw->value->int32;
+        s_seconds_thickness = (width >= 1 && width <= 3) ? width : 1;
+    }
+
     Tuple *ss = dict_find(iter, KEY_SHOW_SECONDS);
     if (ss) s_show_seconds = (ss->value->int32 != 0);
     

@@ -76,7 +76,7 @@ const schemaPalette = ["00FFAA","55FF00","00FFFF","0055FF","AAAAFF","AA00FF","FF
 const fields = itemsFromSchema(schema).filter(item => item.messageKey);
 
 test('Clay defines all existing settings and exactly 10 full calendar entries', () => {
-  assert.equal(fields.length, 44);
+  assert.equal(fields.length, 46);
   const keys = fields.map(item => item.messageKey);
   assert.equal(new Set(keys).size, keys.length);
   for (let i = 0; i < 10; ++i) {
@@ -269,4 +269,24 @@ test('all 16 Clay swatches round-trip as RGB24 colors', () => {
     assert.equal(app.context.colorHexToIndex(value,11),i);
     assert.equal(app.context.colorHexToIndex(schemaPalette[i],11),i);
   }
+});
+
+test('seconds hand color and relative stroke widths persist and reach watch', () => {
+  const color=fields.find(f=>f.messageKey==='SecondsColor');
+  const thickness=fields.find(f=>f.messageKey==='SecondsThickness');
+  assert.equal(color.type,'color');
+  assert.equal(color.defaultValue,'FF0000');
+  assert.deepEqual(thickness.options.map(x=>x.value),['1','2','3']);
+  const app=sandbox({});
+  app.events.showConfiguration();
+  const settings={};
+  for(const f of fields) settings[f.messageKey]={value:app.clay.settings[f.messageKey]??f.defaultValue};
+  settings.SecondsColor.value=0x0055FF;
+  settings.SecondsThickness.value='3';
+  app.events.webviewclosed({response:JSON.stringify(settings)});
+  const saved=JSON.parse(app.memory.get('calendarConfig'));
+  assert.equal(saved.secondsColor,3);
+  assert.equal(saved.secondsThickness,3);
+  assert.equal(app.sent[0][64],3);
+  assert.equal(app.sent[0][65],3);
 });

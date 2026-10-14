@@ -80,6 +80,16 @@ var config = [
         { label: 'Long (near dial edge)', value: '2' }
       ] },
     colorField('MinuteHandColor', 'Color (not used in Rainbow mode)', 11)
+  ] },
+  { type: 'section', items: [
+    { type: 'heading', defaultValue: 'Seconds hand / Sekundenzeiger' },
+    colorField('SecondsColor', 'Color / Farbe', 7),
+    { type: 'select', messageKey: 'SecondsThickness', label: 'Thickness / Strichstärke',
+      defaultValue: '1', options: [
+        { label: 'Normal (1×, original)', value: '1' },
+        { label: 'Double (2×)', value: '2' },
+        { label: 'Triple (3×)', value: '3' }
+      ] }
   ] }
 ];
 
