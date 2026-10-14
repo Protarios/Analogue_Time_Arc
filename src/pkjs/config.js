@@ -38,7 +38,9 @@ var COMPLICATION_OPTIONS = [
   { value: '3', label: 'Weather / Wetter' },
   { value: '4', label: 'Calendar week: large / KW groß' },
   { value: '5', label: 'Seconds / Sekunden' },
-  { value: '6', label: 'Swatch Internet Time / .beat' }
+  { value: '6', label: 'Swatch Internet Time / .beat' },
+  { value: '8', label: 'Steps today / Schritte heute' },
+  { value: '9', label: 'Heart rate / Puls (BPM)' }
 ];
 var config = [
   { type: 'heading', defaultValue: 'Analogue Time Arc' },

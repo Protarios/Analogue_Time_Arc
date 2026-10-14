@@ -65,7 +65,7 @@ function colorHexToIndex(value, fallback) {
 }
 
 function slotOption(value, fallback) {
-    return validOption(value, fallback, 7);
+    return validOption(value, fallback, 9);
 }
 function migrationSlot(config, slot, defaultValue) {
     if (Object.prototype.hasOwnProperty.call(config, slot)) return slotOption(config[slot], defaultValue);

@@ -315,7 +315,7 @@ test('three independent complication slots preserve legacy defaults', () => {
   for(const key of ['LeftComplication','RightComplication','TopComplication']){
     const field=fields.find(x=>x.messageKey===key);
     assert.ok(field);
-    assert.equal(field.options.length,7);
+    assert.equal(field.options.length,9);
   }
 });
 
@@ -411,4 +411,53 @@ test('seconds and battery use mirrored compact complication slots', () => {
   assert.ok(source.includes('draw_battery_icon(ctx, area)'));
   assert.ok(source.includes('bool wide_left = s_complication_left == COMP_DATE_DDMM'));
   assert.ok(source.includes('bool wide_right = s_complication_right == COMP_DATE_DDMM'));
+});
+
+test('health complication options and saved selections work in all slots', () => {
+  for(const key of ['LeftComplication','RightComplication','TopComplication']) {
+    const options=fields.find(x=>x.messageKey===key).options;
+    assert.ok(options.some(o=>o.value==='8' && o.label.includes('Steps')));
+    assert.ok(options.some(o=>o.value==='9' && o.label.includes('Heart rate')));
+  }
+  const app=sandbox({leftComplication:8,rightComplication:9,topComplication:5,showSeconds:false});
+  app.events.showConfiguration();
+  assert.equal(app.clay.settings.LeftComplication,'8');
+  assert.equal(app.clay.settings.RightComplication,'9');
+  const settings={};
+  for(const field of fields)settings[field.messageKey]={value:app.clay.settings[field.messageKey] ?? field.defaultValue};
+  app.events.webviewclosed({response:JSON.stringify(settings)});
+  const saved=JSON.parse(app.memory.get('calendarConfig'));
+  assert.equal(saved.leftComplication,8);
+  assert.equal(saved.rightComplication,9);
+  assert.equal(saved.topComplication,5);
+  assert.equal(app.sent[0][67],8);
+  assert.equal(app.sent[0][68],9);
+  assert.equal(app.sent[0][69],5);
+});
+
+test('health is gated, weather includes its icon on either side', () => {
+  const src=fs.readFileSync(path.join(root,'src/c/watchface.c'),'utf8');
+  const metadata=require(path.join(root,'package.json'));
+  assert.ok(metadata.pebble.capabilities.includes('health'));
+  assert.ok(src.includes('health_service_sum_today(HealthMetricStepCount)'));
+  assert.ok(src.includes('health_service_peek_current_value(HealthMetricHeartRateBPM)'));
+  assert.ok(src.includes('health_service_metric_accessible('));
+  assert.ok(src.includes('health_service_events_subscribe('));
+  assert.ok(src.includes('draw_heart_pictogram(ctx, cx, symbol_y)'));
+  assert.ok(src.includes('draw_steps_pictogram(ctx, cx, symbol_y)'));
+  assert.ok(src.includes('draw_weather_icon(ctx, s_weather_code,'));
+  assert.ok(!src.includes('if (s_complication_right == COMP_WEATHER) {'));
+  assert.ok(src.includes('centre.y - 20, left_width, 34'));
+  assert.ok(src.includes('centre.y - 20, right_width, 34'));
+  for(const key of ['lcomp','rcomp','tcomp'])
+    assert.ok(src.includes(key+'->value->int32 <= 9'));
+});
+
+test('seconds complications force second tick even if seconds hand is hidden', () => {
+  const src=fs.readFileSync(path.join(root,'src/c/watchface.c'),'utf8');
+  assert.ok(src.includes('bool needs_seconds = s_show_seconds ||'));
+  assert.ok(src.includes('s_complication_left == COMP_SECONDS'));
+  assert.ok(src.includes('s_complication_right == COMP_SECONDS'));
+  assert.ok(src.includes('s_complication_top == COMP_SECONDS'));
+  assert.ok(src.includes('needs_seconds ? SECOND_UNIT : MINUTE_UNIT'));
 });

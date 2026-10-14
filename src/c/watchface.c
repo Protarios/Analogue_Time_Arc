@@ -57,6 +57,8 @@
 #define COMP_SECONDS 5
 #define COMP_BEATS 6
 #define COMP_DATE_DDMM 7
+#define COMP_STEPS 8
+#define COMP_HEART_RATE 9
 
 // Rendering of Screenshots
 #define SCREENSHOT_MODE 0
@@ -152,6 +154,79 @@ static int      s_event_count = 0;
 
 static GFont s_small_font;
 static GFont s_date_font;
+
+// Query HealthService only while one of the three slots uses a health metric.
+#if defined(PBL_HEALTH)
+static bool s_health_subscribed = false;
+static bool s_steps_available = false;
+static bool s_hr_available = false;
+static uint32_t s_steps_today = 0;
+static uint32_t s_heart_rate = 0;
+
+static bool health_complication_selected(void) {
+    return s_complication_left == COMP_STEPS ||
+           s_complication_right == COMP_STEPS ||
+           s_complication_top == COMP_STEPS ||
+           s_complication_left == COMP_HEART_RATE ||
+           s_complication_right == COMP_HEART_RATE ||
+           s_complication_top == COMP_HEART_RATE;
+}
+
+static void refresh_health_metrics(void) {
+    time_t now = time(NULL);
+    bool need_steps = s_complication_left == COMP_STEPS ||
+                      s_complication_right == COMP_STEPS ||
+                      s_complication_top == COMP_STEPS;
+    bool need_hr = s_complication_left == COMP_HEART_RATE ||
+                   s_complication_right == COMP_HEART_RATE ||
+                   s_complication_top == COMP_HEART_RATE;
+    s_steps_available = false;
+    s_hr_available = false;
+
+    if (need_steps) {
+        HealthServiceAccessibilityMask access = health_service_metric_accessible(
+            HealthMetricStepCount, time_start_of_today(), now);
+        if (access & HealthServiceAccessibilityMaskAvailable) {
+            HealthValue steps = health_service_sum_today(HealthMetricStepCount);
+            if (steps >= 0) {
+                s_steps_today = (uint32_t)steps;
+                s_steps_available = true;
+            }
+        }
+    }
+    if (need_hr) {
+        HealthServiceAccessibilityMask access = health_service_metric_accessible(
+            HealthMetricHeartRateBPM, now, now);
+        if (access & HealthServiceAccessibilityMaskAvailable) {
+            HealthValue bpm = health_service_peek_current_value(HealthMetricHeartRateBPM);
+            if (bpm > 0) {
+                s_heart_rate = (uint32_t)bpm;
+                s_hr_available = true;
+            }
+        }
+    }
+}
+
+static void health_event_handler(HealthEventType event, void *context) {
+    (void)event;
+    (void)context;
+    refresh_health_metrics();
+    if (s_canvas_layer) layer_mark_dirty(s_canvas_layer);
+}
+
+static void update_health_subscription(void) {
+    bool needed = health_complication_selected();
+    if (needed && !s_health_subscribed)
+        s_health_subscribed = health_service_events_subscribe(health_event_handler, NULL);
+    else if (!needed && s_health_subscribed) {
+        health_service_events_unsubscribe();
+        s_health_subscribed = false;
+    }
+    if (needed) refresh_health_metrics();
+}
+#else
+static void update_health_subscription(void) { }
+#endif
 
 // --- Square perimeter helper ----------------------------------
 static GPoint perimeter_point(GRect bounds, int inset, int angle_deg) {
@@ -287,6 +362,12 @@ static void battery_callback(BatteryChargeState state) {
 
 // --- Tick handler ---------------------------------------------
 static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
+    (void)tick_time;
+    #if defined(PBL_HEALTH)
+    // Never poll health at the high-frequency second tick.
+    if ((units_changed & MINUTE_UNIT) && s_health_subscribed)
+        refresh_health_metrics();
+    #endif
     layer_mark_dirty(s_canvas_layer);
 }
 
@@ -304,10 +385,14 @@ static void update_tick_subscription(void) {
 
     tick_timer_service_unsubscribe();
 
-    tick_timer_service_subscribe(
-        s_show_seconds ? SECOND_UNIT : MINUTE_UNIT,
-        tick_handler
-    );
+    // Tick each second only if the seconds hand or a seconds complication
+    // is enabled. Health events themselves need no second-level polling.
+    bool needs_seconds = s_show_seconds ||
+                         s_complication_left == COMP_SECONDS ||
+                         s_complication_right == COMP_SECONDS ||
+                         s_complication_top == COMP_SECONDS;
+    tick_timer_service_subscribe(needs_seconds ? SECOND_UNIT : MINUTE_UNIT,
+                                 tick_handler);
 }
 
 // --- Weather icon drawing -------------------------------------
@@ -649,13 +734,88 @@ static void draw_battery_icon(GContext *ctx, GRect area) {
     }
 }
 
-// Render text-only complications in a slot. Weather/date preserve their legacy
-// layouts in their original slots, handled directly in canvas_update_proc.
+// Lightweight pictograms: drawn directly so no extra image resources are needed.
+static void draw_heart_pictogram(GContext *ctx, int cx, int y) {
+    graphics_context_set_stroke_color(ctx, GColorRed);
+    graphics_context_set_stroke_width(ctx, 2);
+    graphics_draw_line(ctx, GPoint(cx, y + 3), GPoint(cx - 3, y));
+    graphics_draw_line(ctx, GPoint(cx - 3, y), GPoint(cx - 6, y + 2));
+    graphics_draw_line(ctx, GPoint(cx - 6, y + 2), GPoint(cx - 5, y + 5));
+    graphics_draw_line(ctx, GPoint(cx - 5, y + 5), GPoint(cx, y + 10));
+    graphics_draw_line(ctx, GPoint(cx, y + 10), GPoint(cx + 5, y + 5));
+    graphics_draw_line(ctx, GPoint(cx + 5, y + 5), GPoint(cx + 6, y + 2));
+    graphics_draw_line(ctx, GPoint(cx + 6, y + 2), GPoint(cx + 3, y));
+    graphics_draw_line(ctx, GPoint(cx + 3, y), GPoint(cx, y + 3));
+}
+
+static void draw_steps_pictogram(GContext *ctx, int cx, int y) {
+    graphics_context_set_stroke_color(ctx, s_text_color);
+    graphics_context_set_fill_color(ctx, s_text_color);
+    graphics_context_set_stroke_width(ctx, 3);
+    graphics_draw_line(ctx, GPoint(cx - 4, y + 7), GPoint(cx - 5, y + 10));
+    graphics_fill_circle(ctx, GPoint(cx - 3, y + 4), 2);
+    graphics_draw_line(ctx, GPoint(cx + 4, y + 4), GPoint(cx + 5, y + 7));
+    graphics_fill_circle(ctx, GPoint(cx + 3, y + 1), 2);
+}
+
+// Render each complication in the same slot geometry on both sides.
 static void draw_complication_text(GContext *ctx, GRect area, int type,
                                    struct tm *now, bool use_fahrenheit,
                                    bool side_slot) {
     char value[48] = "";
     if (type == COMP_EMPTY) return;
+
+    // Weather now draws temperature AND pictogram on either side.
+    if (type == COMP_WEATHER) {
+        if (s_weather_temp == INT_MIN)
+            snprintf(value, sizeof(value), "--");
+        else
+            snprintf(value, sizeof(value), "%d\xC2\xB0%c",
+                     s_weather_temp, use_fahrenheit ? 'F' : 'C');
+        int cx = area.origin.x + area.size.w / 2;
+        GRect temperature = GRect(area.origin.x, area.origin.y, area.size.w, 20);
+        graphics_context_set_text_color(ctx, s_text_color);
+        graphics_draw_text(ctx, value, s_small_font, temperature,
+                           GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
+        if (s_weather_code >= 0)
+            draw_weather_icon(ctx, s_weather_code,
+                              cx - 10, area.origin.y + 20, false);
+        return;
+    }
+
+    // Health values are collected by HealthService events and on minute ticks.
+    if (type == COMP_STEPS || type == COMP_HEART_RATE) {
+        bool available = false;
+        #if defined(PBL_HEALTH)
+        if (type == COMP_STEPS) {
+            available = s_steps_available;
+            if (available) snprintf(value, sizeof(value), "%lu",
+                                    (unsigned long)s_steps_today);
+        } else {
+            available = s_hr_available;
+            if (available) snprintf(value, sizeof(value), "%lu",
+                                    (unsigned long)s_heart_rate);
+        }
+        #endif
+        if (!available) snprintf(value, sizeof(value), "--");
+        int cx = area.origin.x + area.size.w / 2;
+        int symbol_y = area.origin.y + (side_slot ? 1 : 0);
+        if (type == COMP_STEPS) draw_steps_pictogram(ctx, cx, symbol_y);
+        else draw_heart_pictogram(ctx, cx, symbol_y);
+
+        GRect number_area = GRect(area.origin.x, area.origin.y + 11,
+                                  area.size.w, side_slot ? 25 : 20);
+        GFont health_font = s_date_font;
+        GSize size = graphics_text_layout_get_content_size(
+            value, health_font, GRect(0, 0, 160, 42),
+            GTextOverflowModeWordWrap, GTextAlignmentLeft);
+        if (size.w > number_area.size.w)
+            health_font = fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD);
+        graphics_context_set_text_color(ctx, s_text_color);
+        graphics_draw_text(ctx, value, health_font, number_area,
+                           GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
+        return;
+    }
     if (type == COMP_DATE) {
         snprintf(value, sizeof(value), "%d", now->tm_mday);
     } else if (type == COMP_DATE_DDMM) {
@@ -669,9 +829,6 @@ static void draw_complication_text(GContext *ctx, GRect area, int type,
             return;
         }
         snprintf(value, sizeof(value), "%s%d%%", s_battery_charging ? "+" : "", s_battery_percent);
-    } else if (type == COMP_WEATHER) {
-        if (s_weather_temp == INT_MIN) snprintf(value, sizeof(value), "--");
-        else snprintf(value, sizeof(value), "%d\xC2\xB0%c", s_weather_temp, use_fahrenheit ? 'F' : 'C');
     } else if (type == COMP_WEEK) {
         char week[8];
         strftime(week, sizeof(week), "%V", now);
@@ -930,50 +1087,22 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
     int wide_width = MIN(is_round ? 63 : 75, centre.x - slot_inset - 2);
     int compact_width = MIN(is_round ? 44 : 56, wide_width);
     bool wide_left = s_complication_left == COMP_DATE_DDMM ||
-                     s_complication_left == COMP_WEEK;
+                     s_complication_left == COMP_WEEK ||
+                     s_complication_left == COMP_STEPS;
     bool wide_right = s_complication_right == COMP_DATE_DDMM ||
-                      s_complication_right == COMP_WEEK;
+                      s_complication_right == COMP_WEEK ||
+                      s_complication_right == COMP_STEPS;
     int left_width = wide_left ? wide_width : compact_width;
     int right_width = wide_right ? wide_width : compact_width;
-    GRect left_rect = GRect(slot_inset, centre.y - 15, left_width, 30);
+    GRect left_rect = GRect(slot_inset, centre.y - 20, left_width, 34);
     GRect right_rect = GRect(bounds.size.w - slot_inset - right_width,
-                            centre.y - 15, right_width, 30);
+                            centre.y - 20, right_width, 34);
     GRect top_rect = GRect(4, centre.y - clock_radius + 18, bounds.size.w - 8, 24);
     if (!show_location) {
         draw_complication_text(ctx, top_rect, s_complication_top, now, s_use_fahrenheit, false);
     }
     draw_complication_text(ctx, left_rect, s_complication_left, now, s_use_fahrenheit, true);
-    if (s_complication_right != COMP_WEATHER) {
-        draw_complication_text(ctx, right_rect, s_complication_right, now, s_use_fahrenheit, true);
-    }
-    if (s_complication_right == COMP_WEATHER) {
-    // -- Weather -----------------------------------------------
-    char weather_str[32] = "--\xc2\xb0" "C";
-    if (s_weather_temp != INT_MIN) {
-        int  temp = s_weather_temp;
-        char unit = s_use_fahrenheit ? 'F' : 'C';
-        snprintf(weather_str, sizeof(weather_str), "%d\xc2\xb0%c", temp, unit);
-    }
-    if (show_shadow) {
-        static const int offsets[4][2] = {{-1,0},{1,0},{0,-1},{0,1}};
-        for (int o = 0; o < 4; o++) {
-            graphics_context_set_text_color(ctx, GColorBlack);
-            graphics_draw_text(ctx, weather_str, s_small_font,
-                GRect(weather_x - 20 + offsets[o][0],
-                      weather_y      + offsets[o][1], 60, 20),
-                GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
-        }
-    }
-    graphics_context_set_text_color(ctx, s_text_color);
-    graphics_draw_text(ctx, weather_str, s_small_font,
-        GRect(weather_x - 20, weather_y, 60, 20),
-        GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
-
-    if (s_weather_code >= 0)
-        draw_weather_icon(ctx, s_weather_code, weather_x - 8, weather_y + 20, show_shadow);
-
-
-    }
+    draw_complication_text(ctx, right_rect, s_complication_right, now, s_use_fahrenheit, true);
 
     // Text is optional foreground: weather and date remain behind the hands.
     if (!s_overlay_above_hands) {
@@ -997,13 +1126,13 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
     if (tu) s_use_fahrenheit = (tu->value->int32 != 0);
 
     Tuple *lcomp = dict_find(iter, KEY_COMPLICATION_LEFT);
-    if (lcomp && lcomp->value->int32 >= 0 && lcomp->value->int32 <= 7)
+    if (lcomp && lcomp->value->int32 >= 0 && lcomp->value->int32 <= 9)
         s_complication_left = (int)lcomp->value->int32;
     Tuple *rcomp = dict_find(iter, KEY_COMPLICATION_RIGHT);
-    if (rcomp && rcomp->value->int32 >= 0 && rcomp->value->int32 <= 7)
+    if (rcomp && rcomp->value->int32 >= 0 && rcomp->value->int32 <= 9)
         s_complication_right = (int)rcomp->value->int32;
     Tuple *tcomp = dict_find(iter, KEY_COMPLICATION_TOP);
-    if (tcomp && tcomp->value->int32 >= 0 && tcomp->value->int32 <= 7)
+    if (tcomp && tcomp->value->int32 >= 0 && tcomp->value->int32 <= 9)
         s_complication_top = (int)tcomp->value->int32;
     Tuple *sd = dict_find(iter, KEY_SHOW_DATE);
     if (sd) s_show_date = (sd->value->int32 != 0);
@@ -1106,7 +1235,8 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
     if (bs) s_battery_style = bs->value->int32 == 1 ? 1 : 0;
     
     update_tick_subscription();
-  
+    update_health_subscription();
+
     Tuple *e0 = dict_find(iter, KEY_EVENT_TEXT_0);
     Tuple *e1 = dict_find(iter, KEY_EVENT_TEXT_1);
     Tuple *e2 = dict_find(iter, KEY_EVENT_TEXT_2);
@@ -1239,6 +1369,9 @@ static void init(void) {
 
 static void deinit(void) {
     tick_timer_service_unsubscribe();
+    #if defined(PBL_HEALTH)
+    if (s_health_subscribed) health_service_events_unsubscribe();
+    #endif
     window_destroy(s_window);
     gbitmap_destroy(s_rainbow_bitmap);
     battery_state_service_unsubscribe();

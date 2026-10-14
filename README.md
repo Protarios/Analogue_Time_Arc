@@ -43,3 +43,9 @@ Run the JavaScript regression tests with `npm test` (Node.js). The Pebble SDK/de
 - Rainbow minute hand is rendered as colored segments from the exact clock center, removing opaque black bitmap artifacts.
 - Appointment start times in the text list use full 24-hour local time; arc geometry continues to repeat every 12 hours.
 - Optional `Show next appointment location` Clay setting: displays ICS `LOCATION` above the dial center for the ongoing timed appointment, or otherwise the next scheduled timed appointment within the fetched 12-hour window. Empty location values are suppressed.
+
+### 1.14.0 — Health and complication refinements
+
+Steps (today's total) and filtered heart rate (BPM) are selectable in any of the three complication slots, with small footprints/heart icons above their values. Requires Pebble Health permission and supported hardware. If data are unavailable, the measurement is shown as “--”. Health data refresh through HealthService events and at minute boundaries without additional high-frequency sensor sampling.
+
+Weather now shows both temperature and weather icons on either left or right side. Left/right side complications are raised to align visually with the 3/9-o'clock positions. Seconds-based redraws occur only when the seconds hand or a seconds complication is selected; otherwise minute cadence is used.
