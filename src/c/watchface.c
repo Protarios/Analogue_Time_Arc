@@ -761,7 +761,7 @@ static void draw_steps_pictogram(GContext *ctx, int cx, int y) {
 // Render each complication in the same slot geometry on both sides.
 static void draw_complication_text(GContext *ctx, GRect area, int type,
                                    struct tm *now, bool use_fahrenheit,
-                                   bool side_slot) {
+                                   bool side_slot, bool weather_shadow) {
     char value[48] = "";
     if (type == COMP_EMPTY) return;
 
@@ -774,12 +774,24 @@ static void draw_complication_text(GContext *ctx, GRect area, int type,
                      s_weather_temp, use_fahrenheit ? 'F' : 'C');
         int cx = area.origin.x + area.size.w / 2;
         GRect temperature = GRect(area.origin.x, area.origin.y, area.size.w, 20);
+        // Preserve the original black text/icon outline when hands overlap.
+        if (weather_shadow) {
+            static const int offsets[4][2] = {{-1,0},{1,0},{0,-1},{0,1}};
+            graphics_context_set_text_color(ctx, GColorBlack);
+            for (int i = 0; i < 4; ++i) {
+                GRect shadow_rect = temperature;
+                shadow_rect.origin.x += offsets[i][0];
+                shadow_rect.origin.y += offsets[i][1];
+                graphics_draw_text(ctx, value, s_small_font, shadow_rect,
+                                   GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
+            }
+        }
         graphics_context_set_text_color(ctx, s_text_color);
         graphics_draw_text(ctx, value, s_small_font, temperature,
                            GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
         if (s_weather_code >= 0)
             draw_weather_icon(ctx, s_weather_code,
-                              cx - 10, area.origin.y + 20, false);
+                              cx - 10, area.origin.y + 20, weather_shadow);
         return;
     }
 
@@ -1098,11 +1110,23 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
     GRect right_rect = GRect(bounds.size.w - slot_inset - right_width,
                             centre.y - 20, right_width, 34);
     GRect top_rect = GRect(4, centre.y - clock_radius + 18, bounds.size.w - 8, 24);
-    if (!show_location) {
-        draw_complication_text(ctx, top_rect, s_complication_top, now, s_use_fahrenheit, false);
+    // Weather shadow is evaluated for the actual left position as well,
+    // not just the legacy right-hand weather widget.
+    bool left_weather_shadow = show_shadow;
+    if (s_complication_left == COMP_WEATHER) {
+        left_weather_shadow = compute_show_shadow(
+            bounds, centre, clock_radius, is_round, hour_len, min_len,
+            hour_angle, min_angle, left_rect.origin.x, left_rect.origin.y,
+            left_rect.size.w, left_rect.size.h + 6);
     }
-    draw_complication_text(ctx, left_rect, s_complication_left, now, s_use_fahrenheit, true);
-    draw_complication_text(ctx, right_rect, s_complication_right, now, s_use_fahrenheit, true);
+    if (!show_location) {
+        draw_complication_text(ctx, top_rect, s_complication_top, now,
+                               s_use_fahrenheit, false, show_shadow);
+    }
+    draw_complication_text(ctx, left_rect, s_complication_left, now,
+                           s_use_fahrenheit, true, left_weather_shadow);
+    draw_complication_text(ctx, right_rect, s_complication_right, now,
+                           s_use_fahrenheit, true, show_shadow);
 
     // Text is optional foreground: weather and date remain behind the hands.
     if (!s_overlay_above_hands) {

@@ -446,6 +446,9 @@ test('health is gated, weather includes its icon on either side', () => {
   assert.ok(src.includes('draw_heart_pictogram(ctx, cx, symbol_y)'));
   assert.ok(src.includes('draw_steps_pictogram(ctx, cx, symbol_y)'));
   assert.ok(src.includes('draw_weather_icon(ctx, s_weather_code,'));
+  assert.ok(src.includes('cx - 10, area.origin.y + 20, weather_shadow'));
+  assert.ok(src.includes('bool left_weather_shadow = show_shadow'));
+  assert.ok(src.includes('left_weather_shadow = compute_show_shadow('));
   assert.ok(!src.includes('if (s_complication_right == COMP_WEATHER) {'));
   assert.ok(src.includes('centre.y - 20, left_width, 34'));
   assert.ok(src.includes('centre.y - 20, right_width, 34'));
