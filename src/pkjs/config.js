@@ -23,8 +23,15 @@ var config = [
     { type: 'toggle', messageKey: 'ShowTicks', label: 'Hour tick marks', defaultValue: true },
     { type: 'toggle', messageKey: 'ShowSeconds', label: 'Show seconds hand', defaultValue: true },
     { type: 'toggle', messageKey: 'OverlayAboveHands', label: 'Complications above hands', defaultValue: false },
-    { type: 'toggle', messageKey: 'BatteryWarningOnly', label: 'Battery warning only (20%)', defaultValue: true },
-    { type: 'toggle', messageKey: 'ShowNextLocation', label: 'Show appointment location (15 min before/after start)', defaultValue: false }
+    { type: 'select', messageKey: 'BatteryDisplayMode', label: 'Battery display / Batterieanzeige',
+      defaultValue: '20', options: [
+        { label: 'Off / Aus', value: '-1' },
+        { label: 'Always / Immer', value: '0' },
+        { label: 'At or below 10%', value: '10' },
+        { label: 'At or below 20%', value: '20' },
+        { label: 'At or below 25%', value: '25' },
+        { label: 'At or below 50%', value: '50' }
+      ] }
   ] },
   { type: 'section', items: [
     { type: 'heading', defaultValue: 'Hour hand' },

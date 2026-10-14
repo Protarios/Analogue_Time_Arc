@@ -35,6 +35,12 @@ function validOption(value, fallback, max) {
         ? number : fallback;
 }
 
+function batteryMode(value, fallback) {
+    var n = Number(value);
+    return (n === -1 || n === 0 || n === 10 || n === 20 ||
+            n === 25 || n === 50) ? n : fallback;
+}
+
 function legacyToClay(config) {
     var result = {
         TemperatureUnit: !!config.useFahrenheit,
@@ -42,14 +48,15 @@ function legacyToClay(config) {
         ShowTicks: config.showTicks !== false,
         ShowSeconds: config.showSeconds !== false,
         OverlayAboveHands: config.overlayAboveHands === true,
-        BatteryWarningOnly: config.batteryWarningOnly !== false,
+        BatteryDisplayMode: String(batteryMode(config.batteryDisplayMode,
+            config.batteryWarningOnly !== false ? 20 : 0)),
         HourHandColor: String(validOption(config.hourColor, 11, 15)),
         MinuteHandColor: String(validOption(config.minuteColor, 11, 15)),
         HourHandStyle: String(validOption(config.hourHandStyle, 0, 1)),
         MinuteHandStyle: String(validOption(config.minuteHandStyle, 0, 2)),
         HourHandLength: String(validOption(config.hourHandLength, 0, 2)),
         MinuteHandLength: String(validOption(config.minuteHandLength, 0, 2)),
-        ShowNextLocation: config.showNextLocation === true
+        ShowNextLocation: true
     };
     for (var i = 0; i < MAX_CALENDARS; i++) {
         result['Calendar' + i + 'Label'] = config['label' + i] || '';
@@ -76,14 +83,15 @@ function clayToLegacy(settings, previous) {
     config.showTicks = !!clayValue(settings, 'ShowTicks', true);
     config.showSeconds = !!clayValue(settings, 'ShowSeconds', true);
     config.overlayAboveHands = !!clayValue(settings, 'OverlayAboveHands', false);
-    config.batteryWarningOnly = !!clayValue(settings, 'BatteryWarningOnly', true);
+    config.batteryDisplayMode = batteryMode(clayValue(settings, 'BatteryDisplayMode',
+        config.batteryWarningOnly !== false ? 20 : 0), 20);
     config.hourColor = validOption(clayValue(settings, 'HourHandColor', 11), 11, 15);
     config.minuteColor = validOption(clayValue(settings, 'MinuteHandColor', 11), 11, 15);
     config.hourHandStyle = validOption(clayValue(settings, 'HourHandStyle', 0), 0, 1);
     config.minuteHandStyle = validOption(clayValue(settings, 'MinuteHandStyle', 0), 0, 2);
     config.hourHandLength = validOption(clayValue(settings, 'HourHandLength', 0), 0, 2);
     config.minuteHandLength = validOption(clayValue(settings, 'MinuteHandLength', 0), 0, 2);
-    config.showNextLocation = !!clayValue(settings, 'ShowNextLocation', false);
+    config.showNextLocation = true;
 
     for (var i = 0; i < MAX_CALENDARS; i++) {
         var label = clayValue(settings, 'Calendar' + i + 'Label', '');
@@ -484,14 +492,14 @@ function sendDisplaySettings() {
         13: packedColors,
         14: typeof config.minuteColor === "number" ? config.minuteColor : 11,
         21: (config.showSeconds !== false) ? 1 : 0,
-        22: (config.batteryWarningOnly !== false) ? 1 : 0,
+        60: batteryMode(config.batteryDisplayMode,
+              config.batteryWarningOnly !== false ? 20 : 0),
         23: config.overlayAboveHands ? 1 : 0,
         24: config.hourHandStyle === 1 ? 1 : 0,
         25: (config.minuteHandStyle === 1 || config.minuteHandStyle === 2)
                 ? config.minuteHandStyle : 0,
         56: validOption(config.hourHandLength, 0, 2),
         57: validOption(config.minuteHandLength, 0, 2),
-        58: config.showNextLocation ? 1 : 0,
     };
     Pebble.sendAppMessage(msg, function() {
         console.log("Display settings sent: " + JSON.stringify(msg));

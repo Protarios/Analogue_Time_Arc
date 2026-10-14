@@ -37,6 +37,7 @@
 #define KEY_MIN_HAND_LENGTH       57
 #define KEY_SHOW_NEXT_LOCATION    58
 #define KEY_NEXT_LOCATION         59
+#define KEY_BATTERY_DISPLAY_MODE  60
 
 // Rendering of Screenshots
 #define SCREENSHOT_MODE 0
@@ -99,13 +100,12 @@ static int s_hour_hand_style = 0; // 0: classic, 1: Minimalin
 static int s_min_hand_style  = 0; // 0: classic, 1: Minimalin, 2: rainbow
 static int s_hour_hand_length = 0; // short, medium, long
 static int s_min_hand_length = 0;
-static bool s_show_next_location = false;
 static char s_next_location[81];
 static GBitmap *s_rainbow_bitmap;
 static bool s_overlay_above_hands = false; // default: UNDER hands
 
 static bool s_show_seconds = true;
-static bool s_battery_warning_only = true;
+static int s_battery_display_mode = 20; // -1 off, 0 always, else threshold
 
 static int  s_battery_percent = 100;
 static bool s_battery_charging = false;
@@ -438,7 +438,15 @@ static void draw_clock_hands(GContext *ctx, GPoint centre,
         centre.x + sin_lookup(DEG_TO_TRIGANGLE(min_angle)) * min_len / TRIG_MAX_RATIO,
         centre.y - cos_lookup(DEG_TO_TRIGANGLE(min_angle)) * min_len / TRIG_MAX_RATIO);
 
-    // Draw minute hand first. Rainbow is vector-drawn from the true centre,
+    graphics_context_set_stroke_color(ctx, palette_color(s_hour_hand_color));
+    graphics_context_set_stroke_width(ctx, hour_width);
+    graphics_draw_line(ctx, centre, tip_hour);
+    if (s_hour_hand_style == 1) {
+        graphics_context_set_fill_color(ctx, palette_color(s_hour_hand_color));
+        graphics_fill_circle(ctx, tip_hour, hour_width / 2);
+    }
+
+    // Draw minute hand over hour hand. Rainbow is vector-drawn from the true centre,
     // avoiding the black/offset portion of the old opaque bitmap.
     if (s_min_hand_style == 2) {
         static const int rainbow_colors[] = {7, 9, 10, 1, 2, 3, 5};
@@ -463,14 +471,6 @@ static void draw_clock_hands(GContext *ctx, GPoint centre,
             graphics_context_set_fill_color(ctx, palette_color(s_min_hand_color));
             graphics_fill_circle(ctx, tip_min, min_width / 2);
         }
-    }
-
-    graphics_context_set_stroke_color(ctx, palette_color(s_hour_hand_color));
-    graphics_context_set_stroke_width(ctx, hour_width);
-    graphics_draw_line(ctx, centre, tip_hour);
-    if (s_hour_hand_style == 1) {
-        graphics_context_set_fill_color(ctx, palette_color(s_hour_hand_color));
-        graphics_fill_circle(ctx, tip_hour, hour_width / 2);
     }
 
     if (s_hour_hand_style == 1 || s_min_hand_style != 0) {
@@ -561,6 +561,9 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
         static const int min_percent[] = {63, 81, 96};
         min_len = clock_radius * min_percent[s_min_hand_length] / 100;
     }
+
+    // Always make the minute hand distinctly longer, even with mixed presets.
+    if (min_len < hour_len + 10) min_len = MIN(clock_radius, hour_len + 10);
 
     int weather_x = (centre.x + (bounds.size.w - centre.x) / 2) - 5;
     int weather_y = centre.y - 11;
@@ -687,12 +690,10 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
     }
 
     // -- Battery -------------------------------------------
-    bool show_battery =
-        !s_battery_warning_only ||
-        s_battery_percent <= 20 ||
-        s_battery_charging;
+    bool show_battery = s_battery_display_mode == 0 ||
+        (s_battery_display_mode > 0 && s_battery_percent <= s_battery_display_mode);
     
-    bool show_location = s_show_next_location && s_next_location[0] != '\0';
+    bool show_location = s_next_location[0] != '\0';
     if (show_battery && !show_location) {
     
         char batt[16];
@@ -988,7 +989,13 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
     if (ss) s_show_seconds = (ss->value->int32 != 0);
     
     Tuple *bw = dict_find(iter, KEY_BATTERY_WARNING_ONLY);
-    if (bw) s_battery_warning_only = (bw->value->int32 != 0);
+    if (bw) s_battery_display_mode = bw->value->int32 ? 20 : 0;
+    Tuple *bm = dict_find(iter, KEY_BATTERY_DISPLAY_MODE);
+    if (bm) {
+        int mode = (int)bm->value->int32;
+        if (mode == -1 || mode == 0 || mode == 10 || mode == 20 ||
+            mode == 25 || mode == 50) s_battery_display_mode = mode;
+    }
     
     update_tick_subscription();
   
@@ -1018,8 +1025,6 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
         int length = (int)ml->value->int32;
         s_min_hand_length = (length >= 0 && length <= 2) ? length : 0;
     }
-    Tuple *sl = dict_find(iter, KEY_SHOW_NEXT_LOCATION);
-    if (sl) s_show_next_location = sl->value->int32 != 0;
     Tuple *loc = dict_find(iter, KEY_NEXT_LOCATION);
     if (loc) {
         snprintf(s_next_location, sizeof(s_next_location), "%s", loc->value->cstring);

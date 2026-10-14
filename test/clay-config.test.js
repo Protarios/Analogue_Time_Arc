@@ -75,7 +75,7 @@ const defaults = [0,4,8,2,9,5,1,7,10,3];
 const fields = itemsFromSchema(schema).filter(item => item.messageKey);
 
 test('Clay defines all existing settings and exactly 10 full calendar entries', () => {
-  assert.equal(fields.length, 43);
+  assert.equal(fields.length, 42);
   const keys = fields.map(item => item.messageKey);
   assert.equal(new Set(keys).size, keys.length);
   for (let i = 0; i < 10; ++i) {
@@ -187,19 +187,15 @@ test('three hand length presets and optional next location are exposed', () => {
     assert.ok(field);
     assert.deepEqual(field.options.map(x => x.value), ['0','1','2']);
   }
-  assert.equal(fields.find(x => x.messageKey === 'ShowNextLocation').defaultValue, false);
+  assert.equal(fields.some(x => x.messageKey === 'ShowNextLocation'), false);
+  const battery = fields.find(x => x.messageKey === 'BatteryDisplayMode');
+  assert.deepEqual(battery.options.map(x => x.value), ['-1','0','10','20','25','50']);
   assert.match(fields.find(x => x.messageKey === 'HourHandLength').label, /Hour hand length/);
   assert.match(fields.find(x => x.messageKey === 'MinuteHandLength').label, /Minute hand length/);
 });
 
-test('location message changes only during a 15-minute priority window', () => {
-  const app=sandbox({});
-  const now=new Date();
-  const base=now.getTime();
-  app.context.s_last_location_events=[
-    {allDay:false,location:'Room A',startTime:base+14*60*1000},
-  ];
-  assert.equal(app.context.currentPriorityLocation(now),'Room A');
-  assert.equal(app.context.currentPriorityLocation(new Date(base-2*60*1000)),'');
-  assert.equal(app.context.currentPriorityLocation(new Date(base+29*60*1000)),'');
+test('battery-mode presets are configurable', () => {
+  const battery = fields.find(x => x.messageKey === 'BatteryDisplayMode');
+  assert.ok(battery);
+  assert.equal(battery.defaultValue, '20');
 });
