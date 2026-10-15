@@ -87,3 +87,7 @@ Simultaneous timed appointments receive separate inward calendar arc lanes, usin
 ### 1.17.1 — Restore 1.16.1 solid arcs and all RGB color modes
 
 This release reconciles the existing merge history without discarding either line of development: native radial fill and gap-free square scanlines from 1.16.1, the three seeded Random Palette, Random Bright Colors and Random Full RGB settings, and the subsequent meeting text margins, two-line location and nested calendar arcs for overlapping appointments. Arc lane offsets are applied to the complete filled square ring as well as the native radial and classic rounded drawing paths. Settings retain their previous numerical IDs and the existing app UUID.
+
+### 1.17.2 — Wider meeting title lines
+
+The three appointment lines now use half their previous horizontal margin (screen width/12, minimum 13px, instead of width/6, minimum 26px), allowing longer titles before ellipsizing. The two-line location keeps its existing narrower margins and the hands/complication/calendar arc drawing order is unchanged.

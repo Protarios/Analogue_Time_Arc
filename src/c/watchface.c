@@ -696,11 +696,11 @@ static void draw_appointment_text(GContext *ctx, GRect bounds, GPoint centre,
         if (event_cal < 0 || event_cal >= MAX_CALENDARS)
             event_cal = 0;
     
-        // Keep meeting titles in the central dial region.  The previous
-        // x=8/width-8 rectangle ran into the outer hour marks and side
-        // complications, especially on the smaller rectangular displays.
-        int meeting_inset = bounds.size.w / 6;
-        if (meeting_inset < 26) meeting_inset = 26;
+        // Keep the meeting titles clear of the hour digits while allowing
+        // more text: use half of the previous horizontal margin.  This is
+        // deliberately independent of the two-line location inset.
+        int meeting_inset = bounds.size.w / 12;
+        if (meeting_inset < 13) meeting_inset = 13;
         GRect text_rect = GRect(meeting_inset, text_y + i * 16,
                                 bounds.size.w - meeting_inset * 2, 16);
         if (text_rect.size.w <= 0) continue;

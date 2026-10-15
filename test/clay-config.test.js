@@ -683,8 +683,8 @@ test('meeting text stays in central dial, hour digits remain behind it', () => {
   const source=fs.readFileSync(path.join(root,'src/c/watchface.c'),'utf8');
   const renderer=source.slice(source.indexOf('static void draw_appointment_text('),
                               source.indexOf('static void draw_battery_icon('));
-  assert.ok(renderer.includes('int meeting_inset = bounds.size.w / 6;'));
-  assert.ok(renderer.includes('if (meeting_inset < 26) meeting_inset = 26;'));
+  assert.ok(renderer.includes('int meeting_inset = bounds.size.w / 12;'));
+  assert.ok(renderer.includes('if (meeting_inset < 13) meeting_inset = 13;'));
   assert.ok(renderer.includes('bounds.size.w - meeting_inset * 2, 16'));
   assert.ok(source.includes('GTextOverflowModeTrailingEllipsis'));
   assert.ok(source.includes('static void draw_overlay_text('));
@@ -782,8 +782,25 @@ test('the restored solid arcs and three random modes coexist with the latest ove
   assert.ok(source.includes('int outer_radius = clock_radius + stroke_width + stroke_width / 2 - lane_inset;'));
   assert.ok(source.includes('assign_arc_overlap_lanes();'));
   assert.ok(source.includes('draw_overlay_text(ctx, label, location_rect, s_text_color);'));
-  assert.ok(source.includes('int meeting_inset = bounds.size.w / 6;'));
+  assert.ok(source.includes('int meeting_inset = bounds.size.w / 12;'));
   assert.ok(!source.includes('s_arc_quad_path'));
   const metadata=require(path.join(root,'package.json'));
   assert.equal(metadata.version,'1.17.1');
+});
+
+test('meeting margins are halved without changing location wrapping or dial order', () => {
+  const src=fs.readFileSync(path.join(root,'src/c/watchface.c'),'utf8');
+  const render=src.slice(src.indexOf('static void draw_appointment_text('),
+                         src.indexOf('static void draw_battery_icon('));
+  assert.ok(render.includes('int meeting_inset = bounds.size.w / 12;'));
+  assert.ok(render.includes('if (meeting_inset < 13) meeting_inset = 13;'));
+  assert.ok(render.includes('bounds.size.w - meeting_inset * 2, 16'));
+  assert.ok(render.includes('int location_inset = bounds.size.w / 6;'));
+  assert.ok(render.includes('if (location_inset < 26) location_inset = 26;'));
+  assert.ok(render.includes('bounds.size.w - location_inset * 2, 44'));
+  assert.ok(render.includes('draw_overlay_text(ctx, buf, text_rect,'));
+  assert.ok(render.includes('draw_overlay_text(ctx, label, location_rect, s_text_color)'));
+  const draw=src.slice(src.indexOf('static void canvas_update_proc('));
+  assert.ok(draw.indexOf('if (!s_overlay_above_hands)') < draw.indexOf('draw_clock_hands(ctx, centre'));
+  assert.ok(draw.indexOf('draw_clock_hands(ctx, centre') < draw.indexOf('if (s_overlay_above_hands)'));
 });
