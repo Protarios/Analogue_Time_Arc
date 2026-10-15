@@ -513,7 +513,7 @@ test('sharp calendar arcs fill adjoining polygons with exact minute boundaries',
   assert.ok(source.includes('s_arc_end_style == 1'));
   assert.ok(source.includes('int minute = start_min + 1; minute <= end_min; ++minute'));
   assert.ok(source.includes('minute * TRIG_MAX_ANGLE / 720'));
-  assert.ok(source.includes('perimeter_point_at_angle(bounds, stroke_width, angle)'));
+  assert.ok(source.includes('perimeter_point_at_angle(bounds, lane_inset + stroke_width, angle)'));
   assert.ok(source.includes('points[0] = previous_inner'));
   assert.ok(source.includes('points[1] = previous_outer'));
   assert.ok(source.includes('points[2] = outer'));
@@ -604,8 +604,9 @@ test('meeting text stays in central dial, hour digits remain behind it', () => {
   assert.ok(renderer.includes('if (meeting_inset < 26) meeting_inset = 26;'));
   assert.ok(renderer.includes('bounds.size.w - meeting_inset * 2, 16'));
   assert.ok(renderer.includes('GTextOverflowModeTrailingEllipsis'));
-  assert.ok(renderer.includes('graphics_context_set_text_color(ctx, s_bg_color)'));
-  assert.ok(renderer.includes('static const int8_t halo_offsets[4][2]'));
+  assert.ok(source.includes('graphics_context_set_text_color(ctx, s_bg_color)'));
+  assert.ok(renderer.includes('draw_overlay_text(ctx, buf, text_rect,'));
+  assert.ok(source.includes('static const int8_t offsets[4][2]'));
   assert.ok(renderer.includes('palette_color(s_cal_color_idx[event_cal])'));
   assert.ok(!renderer.includes('GRect(8, text_y + i * 16, bounds.size.w - 8, 16)'));
 
@@ -622,4 +623,62 @@ test('meeting text stays in central dial, hour digits remain behind it', () => {
   assert.ok(tick >= 0 && tick < complications);
   assert.ok(complications < beforeHands && beforeHands < hands);
   assert.ok(hands < afterHands && afterHands < indicator);
+});
+
+test('location wraps into two lines and ellipsizes only after line two', () => {
+  const source=fs.readFileSync(path.join(root,'src/c/watchface.c'),'utf8');
+  const text=source.slice(source.indexOf('static void draw_appointment_text('),
+                          source.indexOf('static void draw_battery_icon('));
+  assert.ok(text.includes('char label[sizeof(s_location_prefix) + sizeof(s_next_location)]'));
+  assert.ok(text.includes('int location_inset = bounds.size.w / 6'));
+  assert.ok(text.includes('if (location_inset < 26) location_inset = 26'));
+  assert.ok(text.includes('bounds.size.w - location_inset * 2, 44'));
+  assert.ok(text.includes('draw_overlay_text(ctx, label, location_rect, s_text_color)'));
+  assert.ok(source.includes('GTextOverflowModeTrailingEllipsis'));
+  assert.ok(source.includes('static const int8_t offsets[4][2]'));
+  assert.ok(!text.includes('GRect(4, loc_y, bounds.size.w - 8, 38)'));
+});
+
+test('concurrent appointments get distinct inner arcs and reuse lanes after ending', () => {
+  const src=fs.readFileSync(path.join(root,'src/c/watchface.c'),'utf8');
+  assert.ok(src.includes('static void assign_arc_overlap_lanes(void)'));
+  assert.ok(src.includes('arc_event_before(&s_events[current], &s_events[order[j - 1]])'));
+  assert.ok(src.includes('int start = ev->full_start_mins;'));
+  assert.ok(src.includes('int end = start + ev->duration_mins;'));
+  assert.ok(src.includes('lane_end[lane] > start'));
+  assert.ok(src.includes('ev->arc_lane = (uint8_t)lane'));
+  assert.ok(src.includes('ev->arc_lane * (arc_stroke + 2)'));
+  assert.ok(src.includes('clock_radius + stroke_width - lane_inset'));
+  assert.ok(src.includes('stroke_width / 2 + lane_inset'));
+  assert.ok(src.includes('perimeter_point_at_angle(bounds, lane_inset, angle)'));
+  assert.ok(src.includes('perimeter_point_at_angle(bounds, lane_inset + stroke_width, angle)'));
+  assert.ok(src.includes('assign_arc_overlap_lanes();'));
+
+  const schedule=items=>{
+    const end=Array(10).fill(-Infinity),result=Array(items.length).fill(0);
+    const order=items.map((e,i)=>({...e,i})).filter(e=>e.duration>0&&!e.allDay)
+      .sort((a,b)=>a.start-b.start || a.id-b.id);
+    for(const e of order){
+      let lane=0;
+      while(lane<9&&end[lane]>e.start)lane++;
+      result[e.i]=lane;
+      end[lane]=e.start+e.duration;
+    }
+    return result;
+  };
+  assert.deepEqual(schedule([
+    {id:0,start:540,duration:120}, {id:1,start:600,duration:30},
+    {id:2,start:630,duration:60}, {id:3,start:660,duration:45}
+  ]),[0,1,1,0]);
+  assert.deepEqual(schedule([
+    {id:1,start:600,duration:60}, {id:0,start:540,duration:90},
+    {id:2,start:610,duration:20}
+  ]),[1,0,2]);
+  assert.deepEqual(schedule([
+    {id:0,start:540,duration:60}, {id:1,start:600,duration:45}
+  ]),[0,0]);
+  assert.deepEqual(schedule([
+    {id:0,start:540,duration:120}, {id:1,start:570,duration:0,allDay:true},
+    {id:2,start:550,duration:70}
+  ]),[0,0,1]);
 });

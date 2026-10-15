@@ -106,6 +106,7 @@ typedef struct {
     int full_start_mins; // unwrapped 0-1439 minutes, for 24h event text
     uint8_t color_seed; // stable identity-based per-appointment color seed
     uint8_t random_color_idx; // resolved palette entry, contrast-adjusted to neighbors
+    uint8_t arc_lane; // inner-ring level for chronologically overlapping appointments
 } CalEvent;
 
 // --- State ---------------------------------------------------
@@ -661,6 +662,26 @@ static void draw_hour_arc_indicator(GContext *ctx, GRect bounds, GPoint centre,
 // --- Canvas draw ---------------------------------------------
 // Appointment text and location share one configurable drawing layer.
 // All weather/date elements are always drawn before the clock hands.
+// A 1px outline in the watchface background keeps clock markings behind
+// letters without covering calendar arcs with an opaque background box.
+static void draw_overlay_text(GContext *ctx, const char *value,
+                              GRect rect, GColor color) {
+    static const int8_t offsets[4][2] = {{-1,0},{1,0},{0,-1},{0,1}};
+    graphics_context_set_text_color(ctx, s_bg_color);
+    for (int i = 0; i < 4; ++i) {
+        GRect halo = rect;
+        halo.origin.x += offsets[i][0];
+        halo.origin.y += offsets[i][1];
+        graphics_draw_text(ctx, value, s_small_font, halo,
+                           GTextOverflowModeTrailingEllipsis,
+                           GTextAlignmentCenter, NULL);
+    }
+    graphics_context_set_text_color(ctx, color);
+    graphics_draw_text(ctx, value, s_small_font, rect,
+                       GTextOverflowModeTrailingEllipsis,
+                       GTextAlignmentCenter, NULL);
+}
+
 static void draw_appointment_text(GContext *ctx, GRect bounds, GPoint centre,
                                   int clock_radius, bool show_location) {
     // -- Meeting Text ---------------------------------------------
@@ -700,41 +721,24 @@ static void draw_appointment_text(GContext *ctx, GRect bounds, GPoint centre,
                                 bounds.size.w - meeting_inset * 2, 16);
         if (text_rect.size.w <= 0) continue;
 
-        // Hour/minute marks and side digits have already been drawn behind
-        // the meeting layer. A one-pixel text-shaped halo in the actual
-        // background color masks strokes touching the glyphs, without
-        // placing an opaque panel over the calendar arcs.
-        static const int8_t halo_offsets[4][2] =
-            {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
-        graphics_context_set_text_color(ctx, s_bg_color);
-        for (int k = 0; k < 4; ++k) {
-            GRect halo = text_rect;
-            halo.origin.x += halo_offsets[k][0];
-            halo.origin.y += halo_offsets[k][1];
-            graphics_draw_text(ctx, buf, s_small_font, halo,
-                               GTextOverflowModeTrailingEllipsis,
-                               GTextAlignmentCenter, NULL);
-        }
-
-        graphics_context_set_text_color(
-            ctx,
-            palette_color(s_cal_color_idx[event_cal])
-        );
-        graphics_draw_text(ctx, buf, s_small_font, text_rect,
-                           GTextOverflowModeTrailingEllipsis,
-                           GTextAlignmentCenter, NULL);
+        draw_overlay_text(ctx, buf, text_rect,
+                          palette_color(s_cal_color_idx[event_cal]));
     }
 
     // Shared upper dial slot: location overrides battery only in the
     // fifteen-minute window calculated by the phone.
     if (show_location) {
-        char label[88];
+        // Keep the entire source string: the layout engine wraps naturally
+        // into a second line and ellipsizes only when both lines are full.
+        char label[sizeof(s_location_prefix) + sizeof(s_next_location)];
         snprintf(label, sizeof(label), "%s%s", s_location_prefix, s_next_location);
         int loc_y = centre.y - clock_radius + 18;
-        graphics_context_set_text_color(ctx, s_text_color);
-        graphics_draw_text(ctx, label, s_small_font,
-            GRect(4, loc_y, bounds.size.w - 8, 38),
-            GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
+        int location_inset = bounds.size.w / 6;
+        if (location_inset < 26) location_inset = 26;
+        GRect location_rect = GRect(location_inset, loc_y,
+                                    bounds.size.w - location_inset * 2, 44);
+        if (location_rect.size.w > 0)
+            draw_overlay_text(ctx, label, location_rect, s_text_color);
     }
 }
 
@@ -1011,6 +1015,40 @@ static void assign_random_arc_colors(void) {
     }
 }
 
+// Assign one arc lane to each timed event when calendar data arrive.
+// All-day events are ignored; adjacent intervals may reuse an outer lane.
+static void assign_arc_overlap_lanes(void) {
+    int order[MAX_EVENTS], count = 0;
+    int lane_end[MAX_EVENTS];
+    for (int k = 0; k < MAX_EVENTS; ++k) lane_end[k] = INT_MIN;
+    for (int i = 0; i < s_event_count; ++i) {
+        s_events[i].arc_lane = 0;
+        if (s_events[i].all_day || s_events[i].duration_mins <= 0) continue;
+        order[count++] = i;
+    }
+    // Sort using true 24-hour start times, not 12-hour dial angles.
+    for (int i = 1; i < count; ++i) {
+        int current = order[i], j = i;
+        while (j > 0 &&
+               arc_event_before(&s_events[current], &s_events[order[j - 1]])) {
+            order[j] = order[j - 1];
+            --j;
+        }
+        order[j] = current;
+    }
+    // Greedy interval partitioning. Long appointments remain in their lane
+    // even when another meeting starts or ends halfway through.
+    for (int i = 0; i < count; ++i) {
+        CalEvent *ev = &s_events[order[i]];
+        int start = ev->full_start_mins;
+        int end = start + ev->duration_mins;
+        int lane = 0;
+        while (lane < MAX_EVENTS - 1 && lane_end[lane] > start) ++lane;
+        ev->arc_lane = (uint8_t)lane;
+        lane_end[lane] = end;
+    }
+}
+
 // Per-event colors are derived from a stable small seed, never from
 // a redraw-time random-number generator.
 static GColor event_arc_color(const CalEvent *ev, int calendar_idx) {
@@ -1048,7 +1086,8 @@ static GColor event_arc_color(const CalEvent *ev, int calendar_idx) {
 // Half-minute angular sampling provides contiguous pixels on square dials.
 static void draw_calendar_arc_segment(GContext *ctx, GRect bounds, GPoint centre,
                                       int clock_radius, bool is_round,
-                                      int stroke_width, int start_min, int end_min) {
+                                      int stroke_width, int start_min, int end_min,
+                                      int lane_inset) {
     if (start_min >= end_min) return;
 
     if (s_arc_end_style == 1) {
@@ -1059,7 +1098,7 @@ static void draw_calendar_arc_segment(GContext *ctx, GRect bounds, GPoint centre
         GPoint previous_inner, previous_outer;
         int32_t initial_angle = (int32_t)start_min * TRIG_MAX_ANGLE / 720;
         if (is_round) {
-            int radius = clock_radius + stroke_width;
+            int radius = clock_radius + stroke_width - lane_inset;
             int r_inner = radius - stroke_width / 2;
             int r_outer = r_inner + stroke_width;
             int32_t sn = sin_lookup(initial_angle), cv = cos_lookup(initial_angle);
@@ -1068,8 +1107,8 @@ static void draw_calendar_arc_segment(GContext *ctx, GRect bounds, GPoint centre
             previous_outer = GPoint(centre.x + sn * r_outer / TRIG_MAX_RATIO,
                                     centre.y - cv * r_outer / TRIG_MAX_RATIO);
         } else {
-            previous_inner = perimeter_point_at_angle(bounds, stroke_width, initial_angle);
-            previous_outer = perimeter_point_at_angle(bounds, 0, initial_angle);
+            previous_inner = perimeter_point_at_angle(bounds, lane_inset + stroke_width, initial_angle);
+            previous_outer = perimeter_point_at_angle(bounds, lane_inset, initial_angle);
         }
 
         graphics_context_set_stroke_width(ctx, 1);
@@ -1078,7 +1117,7 @@ static void draw_calendar_arc_segment(GContext *ctx, GRect bounds, GPoint centre
             int32_t angle = (int32_t)minute * TRIG_MAX_ANGLE / 720;
             GPoint inner, outer;
             if (is_round) {
-                int radius = clock_radius + stroke_width;
+                int radius = clock_radius + stroke_width - lane_inset;
                 int r_inner = radius - stroke_width / 2;
                 int r_outer = r_inner + stroke_width;
                 int32_t sn = sin_lookup(angle), cv = cos_lookup(angle);
@@ -1087,8 +1126,8 @@ static void draw_calendar_arc_segment(GContext *ctx, GRect bounds, GPoint centre
                 outer = GPoint(centre.x + sn * r_outer / TRIG_MAX_RATIO,
                                centre.y - cv * r_outer / TRIG_MAX_RATIO);
             } else {
-                inner = perimeter_point_at_angle(bounds, stroke_width, angle);
-                outer = perimeter_point_at_angle(bounds, 0, angle);
+                inner = perimeter_point_at_angle(bounds, lane_inset + stroke_width, angle);
+                outer = perimeter_point_at_angle(bounds, lane_inset, angle);
             }
 
             if (s_arc_quad_path) {
@@ -1113,7 +1152,7 @@ static void draw_calendar_arc_segment(GContext *ctx, GRect bounds, GPoint centre
     const int start_deg = start_min * 360 / 720;
     const int end_deg = end_min * 360 / 720;
     if (is_round) {
-        const int arc_radius = clock_radius + stroke_width;
+        const int arc_radius = clock_radius + stroke_width - lane_inset;
         for (int deg = start_deg; deg < end_deg; deg += 3) {
             int d2 = (deg + 3 < end_deg) ? deg + 3 : end_deg;
             GPoint p1 = GPoint(
@@ -1125,7 +1164,7 @@ static void draw_calendar_arc_segment(GContext *ctx, GRect bounds, GPoint centre
             graphics_draw_line(ctx, p1, p2);
         }
     } else {
-        const int inset = stroke_width / 2;
+        const int inset = stroke_width / 2 + lane_inset;
         for (int deg = start_deg; deg < end_deg; ++deg) {
             int d2 = (deg + 1 < end_deg) ? deg + 1 : end_deg;
             graphics_draw_line(ctx, perimeter_point(bounds, inset, deg),
@@ -1278,14 +1317,23 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
         graphics_context_set_stroke_color(ctx, arc_color);
         graphics_context_set_fill_color(ctx, arc_color);
 
+        // 8px arc plus 2px separation for each additional concurrent event.
+        // Clamp on small screens to keep the ring clear of the central hands.
+        int lane_inset = ev->arc_lane * (arc_stroke + 2);
+        int max_inset = clock_radius > 24 ? clock_radius - 24 : 0;
+        if (lane_inset > max_inset) lane_inset = max_inset;
+
         if (!wraps) {
             draw_calendar_arc_segment(ctx, bounds, centre, clock_radius,
-                                      is_round, arc_stroke, start, end);
+                                      is_round, arc_stroke, start, end,
+                                      lane_inset);
         } else {
             draw_calendar_arc_segment(ctx, bounds, centre, clock_radius,
-                                      is_round, arc_stroke, start, 720);
+                                      is_round, arc_stroke, start, 720,
+                                      lane_inset);
             draw_calendar_arc_segment(ctx, bounds, centre, clock_radius,
-                                      is_round, arc_stroke, 0, end);
+                                      is_round, arc_stroke, 0, end,
+                                      lane_inset);
         }
     }
 
@@ -1429,6 +1477,7 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
             s_event_count++;
             if (*p == '|') p++; else break;
         }
+        assign_arc_overlap_lanes();
         assign_random_arc_colors();
     }
 
@@ -1603,6 +1652,7 @@ static void init(void) {
     };
     GPathInfo quad_info = { .num_points = 4, .points = quad_init };
     s_arc_quad_path = gpath_create(&quad_info);
+    assign_arc_overlap_lanes();
     assign_random_arc_colors();
     s_small_font = fonts_get_system_font(FONT_KEY_GOTHIC_18);
     s_date_font  = fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD);

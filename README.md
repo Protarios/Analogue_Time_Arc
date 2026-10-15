@@ -64,3 +64,10 @@ Sharp calendar arcs now use **filled 4-point GPath quads** joining adjacent minu
 ### 1.15.2 — Meeting text avoids dial digits
 
 The three meeting-title lines now use a centrally inset text area with symmetric margins (at least 26 px on both sides). This prevents titles from running into the peripheral hour/minute digits or side complications. A 1px, background-colored text halo keeps underlying tick strokes visually behind meeting letters without covering calendar arcs with an opaque panel. The previous drawing order for the hands, complications, location, and hour indicator is unchanged.
+
+
+### 1.17.0 — Two-line location and parallel appointments
+
+Appointment location uses the same central horizontal margins and thin background-colored text outline as meeting titles. It naturally wraps into a second line and uses a trailing ellipsis if the full location is longer than two lines. The original location priority and position relative to the hands remain unchanged.
+
+Simultaneous timed appointments receive separate inward calendar arc lanes, using the full 24-hour start time and interval duration to detect overlaps. Each lane is separated from the next by the 8px stroke plus 2px gap, for both rounded/flat styles and round/rectangular displays. Lanes are assigned only when calendar data change; non-overlapping appointments reuse the outer lane. On very small screens, lane offsets are limited to preserve the dial center.
