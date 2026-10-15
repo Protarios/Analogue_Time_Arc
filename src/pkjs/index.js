@@ -1,7 +1,184 @@
 // index.js — PebbleKit JS
-console.log("index.js v11 loaded");
+console.log("Analogue Time Arc PebbleKit JS (Clay) loaded");
 
 var MAX_CALENDARS = 10;
+
+// Keep the original "calendarConfig" schema: weather, calendar fetching and
+// the watch-side C renderer already consume these exact names/indices.
+// Clay stores its form state separately under "clay-settings".
+var clay = null;
+
+function ensureClay() {
+    if (clay) return clay;
+    // A broken or missing optional settings package must not block the normal
+    // PebbleKit startup, calendar fetching or weather updates.
+    var Clay = require('@rebble/clay');
+    var claySchema = require('./config');
+    clay = new Clay(claySchema, null, { autoHandleEvents: false });
+    return clay;
+}
+var DEFAULT_CAL_COLORS = [0, 4, 8, 2, 9, 5, 1, 7, 10, 3];
+
+function loadSavedConfig() {
+    try {
+        var value = JSON.parse(localStorage.getItem('calendarConfig') || '{}');
+        return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+    } catch (e) {
+        console.log('Invalid saved watchface config: ' + e);
+        return {};
+    }
+}
+
+function validOption(value, fallback, max) {
+    var number = Number(value);
+    return isFinite(number) && Math.floor(number) === number && number >= 0 && number <= max
+        ? number : fallback;
+}
+
+var COLOR_HEX = ["00FFAA","55FF00","00FFFF","0055FF","AAAAFF","AA00FF","FF55FF","FF0000","FF5555","FFAA00","FFFF00","FFFFFF","AAAAAA","555555","5500AA","00FF00"];
+function colorIndexToHex(value, fallback) {
+    return COLOR_HEX[validOption(value, fallback, 15)];
+}
+function colorHexToIndex(value, fallback) {
+    // Clay's color picker serializes the 24-bit RGB color as a decimal
+    // number: red is 0xFF0000 (16711680), not a Pebble ARGB8 byte.
+    // Saved legacy palette indices (0..15) remain accepted.
+    if (typeof value === 'number') {
+        if (!isFinite(value) || Math.floor(value) !== value) return fallback;
+        if (value >= 0 && value < COLOR_HEX.length) return value;
+        if (value >= 0 && value <= 0xFFFFFF) {
+            var rgb = ('000000' + value.toString(16)).slice(-6).toUpperCase();
+            var matched = COLOR_HEX.indexOf(rgb);
+            return matched >= 0 ? matched : fallback;
+        }
+        return fallback;
+    }
+
+    var raw = String(value == null ? '' : value).trim();
+    // Strings from a color component are hexadecimal RGB, including strings
+    // comprised only of digits (e.g. "555555").
+    var hex = raw.replace(/^#|^0x/i, '').toUpperCase();
+    var idx = COLOR_HEX.indexOf(hex);
+    if (idx >= 0) return idx;
+    if (/^\\d{1,2}$/.test(raw)) return validOption(raw, fallback, 15);
+    return fallback;
+}
+
+function slotOption(value, fallback) {
+    return validOption(value, fallback, 9);
+}
+function migrationSlot(config, slot, defaultValue) {
+    if (Object.prototype.hasOwnProperty.call(config, slot)) return slotOption(config[slot], defaultValue);
+    if (slot === 'leftComplication') return config.showDate === false ? 0 : 1;
+    if (slot === 'topComplication') return Number(config.batteryDisplayMode) === -1 ? 0 : 2;
+    return 3;
+}
+function tickMode(config) {
+    return validOption(config.tickMode,
+        config.showTicks === false ? 0 : 1, 2);
+}
+function batteryStyle(value) {
+    return validOption(value, 0, 1);
+}
+function batteryMode(value, fallback) {
+    var n = Number(value);
+    return (n === -1 || n === 0 || n === 10 || n === 20 ||
+            n === 25 || n === 50) ? n : fallback;
+}
+
+function legacyToClay(config) {
+    var result = {
+        TemperatureUnit: !!config.useFahrenheit,
+        LeftComplication: String(migrationSlot(config, 'leftComplication', 1)),
+        RightComplication: String(migrationSlot(config, 'rightComplication', 3)),
+        TopComplication: String(migrationSlot(config, 'topComplication', 2)),
+        TickMode: String(tickMode(config)),
+        ArcEndStyle: String(validOption(config.arcEndStyle, 0, 1)),
+        ArcColorMode: String(validOption(config.arcColorMode, 0, 4)),
+        ShowSeconds: config.showSeconds !== false,
+        OverlayAboveHands: config.overlayAboveHands === true,
+        BatteryStyle: String(batteryStyle(config.batteryStyle)),
+        BatteryDisplayMode: String(batteryMode(config.batteryDisplayMode,
+            config.batteryWarningOnly !== false ? 20 : 0)),
+        HourHandColor: colorIndexToHex(config.hourColor, 11),
+        MinuteHandColor: colorIndexToHex(config.minuteColor, 11),
+        TickColor: colorIndexToHex(config.tickColor, 11),
+        CenterColor: colorIndexToHex(config.centerColor, 11),
+        SecondsColor: colorIndexToHex(config.secondsColor, 7),
+        SecondsThickness: String(validOption(config.secondsThickness, 1, 3) || 1),
+        HourHandStyle: String(validOption(config.hourHandStyle, 0, 1)),
+        MinuteHandStyle: String(validOption(config.minuteHandStyle, 0, 2)),
+        HourHandLength: String(validOption(config.hourHandLength, 0, 2)),
+        MinuteHandLength: String(validOption(config.minuteHandLength, 0, 2)),
+        ShowNextLocation: true,
+        LocationPrefix: config.locationPrefix == null ? 'Ort: ' : String(config.locationPrefix)
+    };
+    for (var i = 0; i < MAX_CALENDARS; i++) {
+        result['Calendar' + i + 'Label'] = config['label' + i] || '';
+        result['Calendar' + i + 'Url'] = config['url' + i] || '';
+        result['Calendar' + i + 'Color'] =
+            colorIndexToHex(config['color' + i], DEFAULT_CAL_COLORS[i]);
+    }
+    return result;
+}
+
+function clayValue(settings, key, fallback) {
+    var item = settings[key];
+    if (item && typeof item === 'object' && Object.prototype.hasOwnProperty.call(item, 'value')) {
+        return item.value;
+    }
+    return fallback;
+}
+
+function clayToLegacy(settings, previous) {
+    // Do not discard unrecognized fields stored by older/newer versions.
+    var config = previous;
+    config.useFahrenheit = !!clayValue(settings, 'TemperatureUnit', false);
+    config.leftComplication = slotOption(clayValue(settings, 'LeftComplication',
+        migrationSlot(config,'leftComplication',1)), 1);
+    config.rightComplication = slotOption(clayValue(settings, 'RightComplication',
+        migrationSlot(config,'rightComplication',3)), 3);
+    config.topComplication = slotOption(clayValue(settings, 'TopComplication',
+        migrationSlot(config,'topComplication',2)), 2);
+    config.tickMode = validOption(clayValue(settings, 'TickMode',
+        tickMode(config)), tickMode(config), 2);
+    config.arcEndStyle = validOption(clayValue(settings, 'ArcEndStyle',
+        config.arcEndStyle == null ? 0 : config.arcEndStyle), 0, 1);
+    config.arcColorMode = validOption(clayValue(settings, 'ArcColorMode',
+        config.arcColorMode == null ? 0 : config.arcColorMode), 0, 4);
+    config.showTicks = config.tickMode !== 0; // preserve legacy callers
+    config.showSeconds = !!clayValue(settings, 'ShowSeconds', true);
+    config.overlayAboveHands = !!clayValue(settings, 'OverlayAboveHands', false);
+    config.batteryStyle = batteryStyle(clayValue(settings, 'BatteryStyle',
+        config.batteryStyle == null ? 0 : config.batteryStyle));
+    config.batteryDisplayMode = batteryMode(clayValue(settings, 'BatteryDisplayMode',
+        config.batteryWarningOnly !== false ? 20 : 0), 20);
+    config.hourColor = colorHexToIndex(clayValue(settings, 'HourHandColor', colorIndexToHex(config.hourColor, 11)), 11);
+    config.minuteColor = colorHexToIndex(clayValue(settings, 'MinuteHandColor', colorIndexToHex(config.minuteColor, 11)), 11);
+    config.tickColor = colorHexToIndex(clayValue(settings, 'TickColor', colorIndexToHex(config.tickColor, 11)), 11);
+    config.centerColor = colorHexToIndex(clayValue(settings, 'CenterColor', colorIndexToHex(config.centerColor, 11)), 11);
+    config.secondsColor = colorHexToIndex(clayValue(settings, 'SecondsColor', colorIndexToHex(config.secondsColor, 7)), 7);
+    config.secondsThickness = validOption(clayValue(settings, 'SecondsThickness', config.secondsThickness || 1), 1, 3) || 1;
+    config.hourHandStyle = validOption(clayValue(settings, 'HourHandStyle', 0), 0, 1);
+    config.minuteHandStyle = validOption(clayValue(settings, 'MinuteHandStyle', 0), 0, 2);
+    config.hourHandLength = validOption(clayValue(settings, 'HourHandLength', 0), 0, 2);
+    config.minuteHandLength = validOption(clayValue(settings, 'MinuteHandLength', 0), 0, 2);
+    config.showNextLocation = true;
+    config.locationPrefix = String(clayValue(settings, 'LocationPrefix',
+        config.locationPrefix == null ? 'Ort: ' : config.locationPrefix)).substring(0, 20);
+
+    for (var i = 0; i < MAX_CALENDARS; i++) {
+        var label = clayValue(settings, 'Calendar' + i + 'Label', '');
+        var url = clayValue(settings, 'Calendar' + i + 'Url', '');
+        config['label' + i] = String(label == null ? '' : label).trim();
+        config['url' + i] = String(url == null ? '' : url).trim();
+        config['color' + i] = colorHexToIndex(
+            clayValue(settings, 'Calendar' + i + 'Color',
+                colorIndexToHex(config['color' + i], DEFAULT_CAL_COLORS[i])),
+            DEFAULT_CAL_COLORS[i]);
+    }
+    return config;
+}
 
 // Cached geolocation position
 var s_last_lat = null;
@@ -193,17 +370,39 @@ function expandRRule(dtstart, rruleStr, now, cutoff) {
 }
 
 // Convert a Date+duration into an arc event and push if it falls in window
-function pushArcEvent(events, calendarIndex, start, durationMs, now, cutoff, title) {
+function pushArcEvent(events, calendarIndex, start, durationMs, now, cutoff, title, allDay, location) {
     var end = new Date(start.getTime() + durationMs);
     if (end <= now || start >= cutoff) return;
+
+    // Calendar arcs are anchored to today's 12-hour dial. An appointment
+    // starting tomorrow can have exactly the same dial angle as "now" and
+    // must not masquerade as an event occurring today. Retain overnight
+    // events that began yesterday and are still active.
+    var midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    if (start >= midnight) return;
+    // Retain the label in the meeting list, but do not draw an all-day arc.
+    if (allDay) {
+        events.push({ calIndex: calendarIndex, startMins: 0, durationMins: 0,
+                      title: title || "", allDay: true, location: location || "",
+                      startTime: start.getTime(), endTime: end.getTime(), fullStartMins: 0 });
+        return;
+    }
     var startMins    = (start.getHours() * 60 + start.getMinutes()) % 720;
     var endMins      = (end.getHours()   * 60 + end.getMinutes())   % 720;
     var durationMins = endMins - startMins;
     if (durationMins <= 0) durationMins += 720;
     durationMins = Math.min(durationMins, 720);
     if (durationMins > 0) {
-        events.push({ calIndex: calendarIndex, startMins: startMins, durationMins: durationMins, title: title || "" });
+        events.push({ calIndex: calendarIndex, startMins: startMins, durationMins: durationMins,
+                      title: title || "", allDay: false, location: location || "",
+                      startTime: start.getTime(), endTime: end.getTime(),
+                      fullStartMins: start.getHours() * 60 + start.getMinutes() });
     }
+}
+
+function unescapeICSText(value) {
+    // ICS escapes: \n (line break), \, \; and \\.
+    return (value || "").replace(/\\[nN]/g, " ").replace(/\\([,;\\])/g, "$1");
 }
 
 function parseICS(raw, calendarIndex, now, cutoff) {
@@ -225,10 +424,12 @@ function parseICS(raw, calendarIndex, now, cutoff) {
             current = {
                 dtstart: null,
                 dtend: null,
+                isAllDay: false,
                 duration: null,
                 rrule: null,
                 exdates: {},
-                summary: ""
+                summary: "",
+                location: ""
             };
             continue;
         }
@@ -243,11 +444,24 @@ function parseICS(raw, calendarIndex, now, cutoff) {
                 } else if (current.duration) {
                     durationMs = current.duration;
                 } else {
-                    durationMs = 60 * 60 * 1000;
+                    durationMs = current.isAllDay ? 24 * 60 * 60 * 1000 : 60 * 60 * 1000;
+                }
+
+                // Some ICS producers represent all-day entries with midnight
+                // DATE-TIME values instead of VALUE=DATE. Detect those too.
+                if (!current.isAllDay) {
+                    var effectiveEnd = new Date(start.getTime() + durationMs);
+                    current.isAllDay =
+                        start.getHours() === 0 && start.getMinutes() === 0 &&
+                        start.getSeconds() === 0 &&
+                        effectiveEnd.getHours() === 0 && effectiveEnd.getMinutes() === 0 &&
+                        effectiveEnd.getSeconds() === 0 &&
+                        dateOnly(effectiveEnd).getTime() > dateOnly(start).getTime();
                 }
 
                 if (current.rrule) {
-                    var occurrences = expandRRule(start, current.rrule, now, cutoff);
+                    var occurrences = expandRRule(start, current.rrule,
+                                                   new Date(now.getTime() - durationMs), cutoff);
 
                     for (var o = 0; o < occurrences.length; o++) {
                         var occ = occurrences[o];
@@ -262,7 +476,9 @@ function parseICS(raw, calendarIndex, now, cutoff) {
                             durationMs,
                             now,
                             cutoff,
-                            current.summary
+                            current.summary,
+                            current.isAllDay,
+                            current.location
                         );
                     }
                 } else {
@@ -273,7 +489,9 @@ function parseICS(raw, calendarIndex, now, cutoff) {
                         durationMs,
                         now,
                         cutoff,
-                        current.summary
+                        current.summary,
+                        current.isAllDay,
+                        current.location
                     );
                 }
             }
@@ -297,6 +515,8 @@ function parseICS(raw, calendarIndex, now, cutoff) {
         // ─── Property handling ──────────────────────────────
         if (key === "DTSTART") {
             current.dtstart = parseICSDate(value);
+            current.isAllDay = /(?:^|;)VALUE=DATE(?:;|$)/i.test(rawKey) ||
+                               /^\d{8}$/.test(value.trim());
         }
 
         else if (key === "DTEND") {
@@ -312,7 +532,11 @@ function parseICS(raw, calendarIndex, now, cutoff) {
         }
 
         else if (key === "SUMMARY") {
-            current.summary = value;
+            current.summary = unescapeICSText(value);
+        }
+
+        else if (key === "LOCATION") {
+            current.location = unescapeICSText(value);
         }
 
         else if (key === "EXDATE") {
@@ -344,14 +568,32 @@ function sendDisplaySettings() {
 
     var msg = {
         2:  config.useFahrenheit ? 1 : 0,
-        3:  (config.showDate  !== false) ? 1 : 0,
-        8:  (config.showTicks !== false) ? 1 : 0,
+        3:  migrationSlot(config, 'leftComplication', 1) === 1 ? 1 : 0,
+        67: migrationSlot(config, 'leftComplication', 1),
+        68: migrationSlot(config, 'rightComplication', 3),
+        69: migrationSlot(config, 'topComplication', 2),
+        8:  tickMode(config) !== 0 ? 1 : 0,
+        71: tickMode(config),
+        70: batteryStyle(config.batteryStyle),
+        72: validOption(config.arcEndStyle, 0, 1),
+        73: validOption(config.arcColorMode, 0, 4),
         12: typeof config.hourColor === "number" ? config.hourColor : 11,
         13: packedColors,
         14: typeof config.minuteColor === "number" ? config.minuteColor : 11,
+        62: validOption(config.tickColor, 11, 15),
+        63: validOption(config.centerColor, 11, 15),
+        64: validOption(config.secondsColor, 7, 15),
+        65: validOption(config.secondsThickness, 1, 3) || 1,
+        66: (config.locationPrefix == null ? 'Ort: ' : String(config.locationPrefix)).substring(0, 20),
         21: (config.showSeconds !== false) ? 1 : 0,
-        22: (config.batteryWarningOnly !== false) ? 1 : 0,
+        60: batteryMode(config.batteryDisplayMode,
+              config.batteryWarningOnly !== false ? 20 : 0),
         23: config.overlayAboveHands ? 1 : 0,
+        24: config.hourHandStyle === 1 ? 1 : 0,
+        25: (config.minuteHandStyle === 1 || config.minuteHandStyle === 2)
+                ? config.minuteHandStyle : 0,
+        56: validOption(config.hourHandLength, 0, 2),
+        57: validOption(config.minuteHandLength, 0, 2),
     };
     Pebble.sendAppMessage(msg, function() {
         console.log("Display settings sent: " + JSON.stringify(msg));
@@ -360,7 +602,60 @@ function sendDisplaySettings() {
     });
 }
 
+// ─── Event-location priority window ─────────────────────────────────────────
+var s_last_location_events = [];
+var s_last_location_sent = null;
+
+function currentLocationState(now) {
+    var timestamp = now.getTime();
+    var windowMs = 15 * 60 * 1000;
+    var timed = s_last_location_events.filter(function(event) {
+        return !!event.location && event.endTime > timestamp;
+    });
+    // Use the current appointment, otherwise the next upcoming appointment.
+    timed.sort(function(a, b) {
+        var aActive = a.startTime <= timestamp;
+        var bActive = b.startTime <= timestamp;
+        if (aActive !== bActive) return aActive ? -1 : 1;
+        return a.startTime - b.startTime;
+    });
+    var event = timed.length ? timed[0] : null;
+    if (!event) return { location: "", priority: 0 };
+    return {
+        location: event.location.substring(0, 80),
+        priority: timestamp >= event.startTime - windowMs &&
+                  timestamp < event.startTime + windowMs ? 1 : 0
+    };
+}
+
+function refreshPriorityLocation() {
+    var state = currentLocationState(new Date());
+    var cacheKey = state.priority + "|" + state.location;
+    if (cacheKey === s_last_location_sent) return;
+    Pebble.sendAppMessage({59: state.location, 61: state.priority}, function() {
+        s_last_location_sent = cacheKey;
+        console.log("Appointment location: " + (state.location || "(none)") +
+                    ", priority=" + state.priority);
+    }, function(err) {
+        console.log("Location update failed: " + JSON.stringify(err));
+        s_last_location_sent = null;
+    });
+}
+
 // ─── Send events ─────────────────────────────────────────────────────────────
+
+// Identity-based pseudo-random seed, stable across redraws and resorting.
+function eventColorSeed(event) {
+    var identity = String(event.startTime == null ? '' : event.startTime) + '|' +
+        String(event.endTime == null ? '' : event.endTime) + '|' +
+        String(event.calIndex == null ? '' : event.calIndex) + '|' +
+        String(event.title || '');
+    var hash = 5381;
+    for (var i = 0; i < identity.length; i++) {
+        hash = ((hash * 33) ^ identity.charCodeAt(i)) & 0xFFFF;
+    }
+    return hash & 0xFF; // only one to three decimal digits in the wire packet
+}
 
 function sendEventsToWatch(events) {
 
@@ -368,25 +663,31 @@ function sendEventsToWatch(events) {
 
     var nowMinutes = now.getHours() * 60 + now.getMinutes();
 
+    // Ongoing timed events first, then upcoming starts; all-day notes last.
     events.sort(function(a, b) {
-
-        function activeScore(e) {
-            var end = e.startMins + e.durationMins;
-            return (nowMinutes >= e.startMins && nowMinutes < end) ? 0 : 1;
-        }
-
-        var sa = activeScore(a);
-        var sb = activeScore(b);
-
-        if (sa !== sb) return sa - sb;
-
-        return a.startMins - b.startMins;
+        if (!!a.allDay !== !!b.allDay) return a.allDay ? 1 : -1;
+        var aActive = !a.allDay && a.startTime <= now.getTime() &&
+                      a.endTime > now.getTime();
+        var bActive = !b.allDay && b.startTime <= now.getTime() &&
+                      b.endTime > now.getTime();
+        if (aActive !== bActive) return aActive ? -1 : 1;
+        return (a.startTime || 0) - (b.startTime || 0);
     });
+
+    // Store appointments for the priority window: 15 minutes before until
+    // 15 minutes after the start. Re-evaluate once per minute without refetching.
+    s_last_location_events = events.filter(function(event) {
+        return !event.allDay && !!event.startTime;
+    });
+    var locationState = currentLocationState(now);
 
     events = events.slice(0, 10);
 
     var packed = events.map(function(e) {
-        return e.startMins + "," + e.durationMins + "," + e.calIndex;
+        return e.startMins + "," + e.durationMins + "," + e.calIndex + "," +
+               (e.allDay ? 1 : 0) + "," +
+               (e.fullStartMins == null ? e.startMins : e.fullStartMins) + "," +
+               eventColorSeed(e);
     }).join("|");
 
     var next = events.slice(0, 3);
@@ -401,9 +702,12 @@ function sendEventsToWatch(events) {
 
         18: next[0] ? next[0].calIndex : 0,
         19: next[1] ? next[1].calIndex : 0,
-        20: next[2] ? next[2].calIndex : 0
+        20: next[2] ? next[2].calIndex : 0,
+        59: locationState.location,
+        61: locationState.priority
     };
 
+    s_last_location_sent = null; // Keep retries available if the combined packet fails.
     console.log("Sending " + events.length + " events: " + packed);
 
     Pebble.sendAppMessage(msg,
@@ -465,11 +769,14 @@ function fetchAllCalendars() {
 
     if (entries.length === 0) {
         console.log("No calendar URLs to fetch");
+        sendEventsToWatch([]);
         return;
     }
 
     var now    = new Date();
-    var cutoff = new Date(now.getTime() + 12 * 60 * 60 * 1000);
+    var horizon = new Date(now.getTime() + 12 * 60 * 60 * 1000);
+    var tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    var cutoff = horizon < tomorrow ? horizon : tomorrow;
     console.log("Fetching " + entries.length + " calendars");
 
     var allEvents = [], pending = entries.length;
@@ -519,32 +826,40 @@ Pebble.addEventListener("ready", function() {
 
     // Single consolidated interval: weather + calendars every 60 minutes
     setInterval(refreshAll, 60 * 60 * 1000);
+    setInterval(refreshPriorityLocation, 60 * 1000);
 });
 
 Pebble.addEventListener("showConfiguration", function() {
-    var config = localStorage.getItem("calendarConfig") || "{}";
-    Pebble.openURL("https://protarios.github.io/pebble-analogue-config/index.html?config="
-                   + encodeURIComponent(config));
-    //Pebble.openURL("https://your-config-page/index.html?config="char
-    //                + encodeURIComponent(config));
+    try {
+        var settingsPage = ensureClay();
+        // Load previously saved watchface settings, including all 10 ICS URLs.
+        // The Clay settings page is bundled locally; no external hosting is used.
+        if (localStorage.getItem('calendarConfig') !== null) {
+            settingsPage.setSettings(legacyToClay(loadSavedConfig()));
+        }
+        Pebble.openURL(settingsPage.generateUrl());
+    } catch (err) {
+        console.log('Cannot open Clay settings: ' + err);
+    }
 });
 
 Pebble.addEventListener("webviewclosed", function(e) {
-    if (e.response && e.response !== "CANCELLED") {
-        try {
-            var raw = e.response;
-            var decoded;
-            try { decoded = decodeURIComponent(raw); } catch(err) { decoded = raw; }
-            var config = JSON.parse(decoded);
-            localStorage.setItem("calendarConfig", JSON.stringify(config));
-            console.log("Config saved");
-            // Reset failure counts so newly configured URLs get a fresh attempt
-            s_cal_fail_count = [0,0,0,0,0,0,0,0,0,0];
-            sendDisplaySettings();
-            refreshWeather(config);
-            fetchAllCalendars();
-        } catch (err) {
-            console.log("Failed to parse config response: " + err);
-        }
+    if (!e || !e.response || e.response === "CANCELLED") return;
+
+    try {
+        // Suppress Clay's default bulk AppMessage: the C watchface only needs
+        // the compact legacy messages, especially the packed calendar colors.
+        var settings = ensureClay().getSettings(e.response, false);
+        var config = clayToLegacy(settings, loadSavedConfig());
+        localStorage.setItem('calendarConfig', JSON.stringify(config));
+        console.log('Clay config saved');
+        // Newly configured ICS URLs should not inherit fetch failure counts.
+        s_cal_fail_count = [0,0,0,0,0,0,0,0,0,0];
+        sendDisplaySettings();
+        refreshWeather(config);
+        fetchAllCalendars();
+        refreshPriorityLocation();
+    } catch (err) {
+        console.log('Failed to parse Clay response: ' + err);
     }
 });

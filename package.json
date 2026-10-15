@@ -1,24 +1,84 @@
 {
-    "author": "dfrench47@gmail.com",
-    "dependencies": {},
+    "author": "Peter Burda",
+    "dependencies": {
+        "@rebble/clay": "^1.1.0"
+    },
     "keywords": [],
-    "name": "ata",
+    "name": "calendar-arc",
     "pebble": {
         "capabilities": [
             "location",
-            "configurable"
+            "configurable",
+            "health"
         ],
-        "displayName": "Analogue Time Arc",
+        "displayName": "Calendar Arc",
         "enableMultiJS": true,
         "messageKeys": {
             "BackgroundColour": 0,
+            "BatteryWarningOnly": 22,
+            "Calendar0Color": 28,
+            "Calendar0Label": 26,
+            "Calendar0Url": 27,
+            "Calendar1Color": 31,
+            "Calendar1Label": 29,
+            "Calendar1Url": 30,
+            "Calendar2Color": 34,
+            "Calendar2Label": 32,
+            "Calendar2Url": 33,
+            "Calendar3Color": 37,
+            "Calendar3Label": 35,
+            "Calendar3Url": 36,
+            "Calendar4Color": 40,
+            "Calendar4Label": 38,
+            "Calendar4Url": 39,
+            "Calendar5Color": 43,
+            "Calendar5Label": 41,
+            "Calendar5Url": 42,
+            "Calendar6Color": 46,
+            "Calendar6Label": 44,
+            "Calendar6Url": 45,
+            "Calendar7Color": 49,
+            "Calendar7Label": 47,
+            "Calendar7Url": 48,
+            "Calendar8Color": 52,
+            "Calendar8Label": 50,
+            "Calendar8Url": 51,
+            "Calendar9Color": 55,
+            "Calendar9Label": 53,
+            "Calendar9Url": 54,
+            "CalendarColors": 13,
             "CalendarEvents": 5,
             "HourFormat": 4,
+            "HourHandColor": 12,
+            "HourHandStyle": 24,
+            "MinuteHandColor": 14,
+            "MinuteHandStyle": 25,
+            "OverlayAboveHands": 23,
             "ShowDate": 3,
+            "ShowSeconds": 21,
+            "ShowTicks": 8,
             "TemperatureUnit": 2,
             "TextColor": 1,
             "WeatherCode": 7,
-            "WeatherTemp": 6
+            "WeatherTemp": 6,
+            "HourHandLength": 56,
+            "MinuteHandLength": 57,
+            "ShowNextLocation": 58,
+            "NextLocation": 59,
+            "BatteryDisplayMode": 60,
+            "LocationPriority": 61,
+            "TickColor": 62,
+            "CenterColor": 63,
+            "SecondsColor": 64,
+            "SecondsThickness": 65,
+            "LocationPrefix": 66,
+            "LeftComplication": 67,
+            "RightComplication": 68,
+            "TopComplication": 69,
+            "BatteryStyle": 70,
+            "TickMode": 71,
+            "ArcEndStyle": 72,
+            "ArcColorMode": 73
         },
         "projectType": "native",
         "resources": {
@@ -40,6 +100,12 @@
                         "gabbro"
                     ],
                     "type": "png"
+                },
+                {
+                    "file": "images/rainbow_hand.png",
+                    "name": "IMG_RAINBOW_HAND",
+                    "targetPlatforms": null,
+                    "type": "png"
                 }
             ]
         },
@@ -50,10 +116,10 @@
             "emery",
             "gabbro"
         ],
-        "uuid": "45317442-ba17-4b73-ba86-49802a539d85",
+        "uuid": "74ca7387-acdd-4025-bd26-5cc0b5f85df5",
         "watchapp": {
             "watchface": true
         }
     },
-    "version": "1.3.0"
+    "version": "1.17.2"
 }

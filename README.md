@@ -1,2 +1,93 @@
-# Analogue_Time_Arc
-Pebble watchface with calendar events in arc around perimeter of watch face
+# Analogue Time Arc
+
+A Pebble analogue watchface with ICS calendar arcs, weather and independently configurable hour and minute hands.
+
+## Calendar events
+
+Timed events are displayed as arcs around the 12-hour dial. Date-only ICS events (`DTSTART;VALUE=DATE`), including recurring all-day events, are kept as text entries but **do not draw arcs**. In the text list, such entries appear as `All day: <title>`.
+
+## Hand styles
+
+Choose hour and minute hand styles independently in the **built-in Clay settings page** (Pebble app → Watchface settings):
+
+- **Classic** (default): original 5-pixel hour and 3-pixel minute hands.
+- **Minimalin**: thick, short hands inspired by Minimalin Reborn (8 px on the Pebble Time 2, 6 px on round platforms).
+- **Minimalin Rainbow** (minute only): the actual Minimalin Reborn rainbow hand, rotated about its original pivot.
+
+The selected styles are transferred with app message keys 24 (hour) and 25 (minute). Older configurations without these keys continue to use the original appearance.
+
+The Minimalin graphics and styling were adapted from [minimalin-reborn](https://github.com/Protarios/minimalin-reborn), MIT licensed. See [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
+
+## Offline configuration with Clay
+
+The settings page is part of the watchface package via [@rebble/clay](https://www.npmjs.com/package/@rebble/clay). **No web server, GitHub Pages or HTML-preview URL is needed.**
+
+The Clay schema is in `src/pkjs/config.js`. It covers six display toggles, both hand styles and colors, plus name, ICS URL and one of the original 16 palette colors for **each of 10 calendars**.
+
+The previous `calendarConfig` values are migrated into Clay when opening settings and preserved on save (including all ICS URLs). The PebbleKit JS continues sending compact existing AppMessages to the watch instead of flooding it with every Clay input. Cancellation leaves saved data unchanged.
+
+Install the Pebble package dependency in your development environment:
+
+```sh
+pebble package install @rebble/clay
+pebble build
+```
+
+The build already bundles `src/pkjs/**/*.js`; `enableMultiJS` is enabled. After installation, open the watchface settings in the Pebble app. The external `pebble-analogue-config` repository is no longer required.
+
+Run the JavaScript regression tests with `npm test` (Node.js). The Pebble SDK/device build must still be verified separately.
+
+## New in 1.7.0
+
+- Three independent hour/minute hand lengths (Short, Medium, Long). Short keeps the previous Minimalin proportions; Long approaches the dial edge. Applies to Classic, Minimalin and Rainbow minute hands.
+- Rainbow minute hand is rendered as colored segments from the exact clock center, removing opaque black bitmap artifacts.
+- Appointment start times in the text list use full 24-hour local time; arc geometry continues to repeat every 12 hours.
+- Optional `Show next appointment location` Clay setting: displays ICS `LOCATION` above the dial center for the ongoing timed appointment, or otherwise the next scheduled timed appointment within the fetched 12-hour window. Empty location values are suppressed.
+
+### 1.14.0 — Health and complication refinements
+
+Steps (today's total) and filtered heart rate (BPM) are selectable in any of the three complication slots, with small footprints/heart icons above their values. Requires Pebble Health permission and supported hardware. If data are unavailable, the measurement is shown as “--”. Health data refresh through HealthService events and at minute boundaries without additional high-frequency sensor sampling.
+
+Weather now shows both temperature and weather icons on either left or right side. Left/right side complications are raised to align visually with the 3/9-o'clock positions. Seconds-based redraws occur only when the seconds hand or a seconds complication is selected; otherwise minute cadence is used.
+
+
+### 1.15.0 — Calendar arc styles
+
+Settings → Calendar arcs provides two independent selectors: **rounded (original)** or **exact flat ends**, combined with **calendar color (original)**, **stable random color per appointment**, or **shades of that appointment's calendar color**. The sharp mode derives angles from actual start/end minutes, without the visible overhang caused by rounded caps. Randomization uses a compact, deterministic seed derived from appointment identity; the color does not change at each redraw. Old settings and appointment packets default to the original rendering.
+
+
+### 1.15.1 — Solid sharp arcs and contrasting event colors
+
+Sharp calendar arcs now use **filled 4-point GPath quads** joining adjacent minute boundaries, with shared 1px edge sealing for pixel-perfect, flat starts and ends. The polygon is allocated once, avoiding per-frame heap allocations. Random event colors are selected from 14 bright entries of the same 16-color Clay palette (excluding dark gray and indigo), in chronological order. A deterministic, seed-based search ensures adjacent events have perceptibly different colors; the assignment is calculated only when calendar data arrive, not every second.
+
+
+### 1.16.0 — No-gap sharp arcs and three independent random color families
+
+On round watches, precise calendar arcs are now filled with the native `graphics_fill_radial` API. On square watches, the four-point GPath references a static backing array that stays valid for the lifetime of the watchface (previously it referenced a temporary stack array, which caused rendering artifacts). Both retain minute-accurate, flat end caps.
+
+Color selection now offers: **Calendar color**, **Random palette** (14 high-visibility entries from the existing 16-color picker), **Random bright colors** (28 bright RGB222 combinations), **Random full RGB** (63 of the device's 64 RGB222 colors, excluding black), and **Shades of calendar color**. These correspond to mode values 0, 1, 3, 4, and 2 respectively; prior settings remain valid. The color assignment is seeded and resolved on each calendar fetch, with contrast maximized against chronologically adjacent appointments.
+
+
+### 1.16.1 — Solid square calendar arcs without stripe artifacts
+
+Sharp calendar arcs on rectangular watches now use **pixel-exact scanline fills**, drawing contiguous horizontal runs inside the 8px perimeter ring and between the actual start/end minute rays. This replaces the per-minute GPath quads that produced visible striped holes in real watch screenshots. Round watches continue using native radial fills. The existing rounded style, random color schemes, saved options, and calendar transfer format are unchanged. No drawing allocations occur per frame.
+
+
+### 1.15.2 — Meeting text avoids dial digits
+
+The three meeting-title lines now use a centrally inset text area with symmetric margins (at least 26 px on both sides). This prevents titles from running into the peripheral hour/minute digits or side complications. A 1px, background-colored text halo keeps underlying tick strokes visually behind meeting letters without covering calendar arcs with an opaque panel. The previous drawing order for the hands, complications, location, and hour indicator is unchanged.
+
+
+### 1.17.0 — Two-line location and parallel appointments
+
+Appointment location uses the same central horizontal margins and thin background-colored text outline as meeting titles. It naturally wraps into a second line and uses a trailing ellipsis if the full location is longer than two lines. The original location priority and position relative to the hands remain unchanged.
+
+Simultaneous timed appointments receive separate inward calendar arc lanes, using the full 24-hour start time and interval duration to detect overlaps. Each lane is separated from the next by the 8px stroke plus 2px gap, for both rounded/flat styles and round/rectangular displays. Lanes are assigned only when calendar data change; non-overlapping appointments reuse the outer lane. On very small screens, lane offsets are limited to preserve the dial center.
+
+### 1.17.1 — Restore 1.16.1 solid arcs and all RGB color modes
+
+This release reconciles the existing merge history without discarding either line of development: native radial fill and gap-free square scanlines from 1.16.1, the three seeded Random Palette, Random Bright Colors and Random Full RGB settings, and the subsequent meeting text margins, two-line location and nested calendar arcs for overlapping appointments. Arc lane offsets are applied to the complete filled square ring as well as the native radial and classic rounded drawing paths. Settings retain their previous numerical IDs and the existing app UUID.
+
+### 1.17.2 — Wider meeting title lines
+
+The three appointment lines now use half their previous horizontal margin (screen width/12, minimum 13px, instead of width/6, minimum 26px), allowing longer titles before ellipsizing. The two-line location keeps its existing narrower margins and the hands/complication/calendar arc drawing order is unchanged.
