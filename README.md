@@ -59,3 +59,8 @@ Settings → Calendar arcs provides two independent selectors: **rounded (origin
 ### 1.15.1 — Solid sharp arcs and contrasting event colors
 
 Sharp calendar arcs now use **filled 4-point GPath quads** joining adjacent minute boundaries, with shared 1px edge sealing for pixel-perfect, flat starts and ends. The polygon is allocated once, avoiding per-frame heap allocations. Random event colors are selected from 14 bright entries of the same 16-color Clay palette (excluding dark gray and indigo), in chronological order. A deterministic, seed-based search ensures adjacent events have perceptibly different colors; the assignment is calculated only when calendar data arrive, not every second.
+
+
+### 1.15.2 — Meeting text avoids dial digits
+
+The three meeting-title lines now use a centrally inset text area with symmetric margins (at least 26 px on both sides). This prevents titles from running into the peripheral hour/minute digits or side complications. A 1px, background-colored text halo keeps underlying tick strokes visually behind meeting letters without covering calendar arcs with an opaque panel. The previous drawing order for the hands, complications, location, and hour indicator is unchanged.

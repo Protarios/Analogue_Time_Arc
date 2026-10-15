@@ -691,20 +691,38 @@ static void draw_appointment_text(GContext *ctx, GRect bounds, GPoint centre,
         if (event_cal < 0 || event_cal >= MAX_CALENDARS)
             event_cal = 0;
     
+        // Keep meeting titles in the central dial region.  The previous
+        // x=8/width-8 rectangle ran into the outer hour marks and side
+        // complications, especially on the smaller rectangular displays.
+        int meeting_inset = bounds.size.w / 6;
+        if (meeting_inset < 26) meeting_inset = 26;
+        GRect text_rect = GRect(meeting_inset, text_y + i * 16,
+                                bounds.size.w - meeting_inset * 2, 16);
+        if (text_rect.size.w <= 0) continue;
+
+        // Hour/minute marks and side digits have already been drawn behind
+        // the meeting layer. A one-pixel text-shaped halo in the actual
+        // background color masks strokes touching the glyphs, without
+        // placing an opaque panel over the calendar arcs.
+        static const int8_t halo_offsets[4][2] =
+            {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
+        graphics_context_set_text_color(ctx, s_bg_color);
+        for (int k = 0; k < 4; ++k) {
+            GRect halo = text_rect;
+            halo.origin.x += halo_offsets[k][0];
+            halo.origin.y += halo_offsets[k][1];
+            graphics_draw_text(ctx, buf, s_small_font, halo,
+                               GTextOverflowModeTrailingEllipsis,
+                               GTextAlignmentCenter, NULL);
+        }
+
         graphics_context_set_text_color(
             ctx,
             palette_color(s_cal_color_idx[event_cal])
         );
-    
-        graphics_draw_text(
-            ctx,
-            buf,
-            s_small_font,
-            GRect(8, text_y + i * 16, bounds.size.w - 8, 16),
-            GTextOverflowModeTrailingEllipsis,
-            GTextAlignmentCenter,
-            NULL
-        );
+        graphics_draw_text(ctx, buf, s_small_font, text_rect,
+                           GTextOverflowModeTrailingEllipsis,
+                           GTextAlignmentCenter, NULL);
     }
 
     // Shared upper dial slot: location overrides battery only in the

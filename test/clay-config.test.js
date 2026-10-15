@@ -595,3 +595,31 @@ test('palette can assign distinct contrasting colors to chronologically adjacent
       'Adjacent appointment colors must have visible contrast');
   }
 });
+
+test('meeting text stays in central dial, hour digits remain behind it', () => {
+  const source=fs.readFileSync(path.join(root,'src/c/watchface.c'),'utf8');
+  const renderer=source.slice(source.indexOf('static void draw_appointment_text('),
+                              source.indexOf('static void draw_battery_icon('));
+  assert.ok(renderer.includes('int meeting_inset = bounds.size.w / 6;'));
+  assert.ok(renderer.includes('if (meeting_inset < 26) meeting_inset = 26;'));
+  assert.ok(renderer.includes('bounds.size.w - meeting_inset * 2, 16'));
+  assert.ok(renderer.includes('GTextOverflowModeTrailingEllipsis'));
+  assert.ok(renderer.includes('graphics_context_set_text_color(ctx, s_bg_color)'));
+  assert.ok(renderer.includes('static const int8_t halo_offsets[4][2]'));
+  assert.ok(renderer.includes('palette_color(s_cal_color_idx[event_cal])'));
+  assert.ok(!renderer.includes('GRect(8, text_y + i * 16, bounds.size.w - 8, 16)'));
+
+  // Both existing overlay modes retain their ordering against the hands:
+  // side complications and hour marks are before meeting text; its own
+  // location overlay and hour-arc indicator keep their previous positions.
+  const body=source.slice(source.indexOf('static void canvas_update_proc('));
+  const tick=body.indexOf('    // -- Hour tick marks ');
+  const complications=body.indexOf('draw_complication_text(ctx, left_rect');
+  const beforeHands=body.indexOf('if (!s_overlay_above_hands)');
+  const hands=body.indexOf('draw_clock_hands(ctx, centre, hour_angle');
+  const afterHands=body.indexOf('if (s_overlay_above_hands)');
+  const indicator=body.indexOf('draw_hour_arc_indicator(ctx, bounds, centre');
+  assert.ok(tick >= 0 && tick < complications);
+  assert.ok(complications < beforeHands && beforeHands < hands);
+  assert.ok(hands < afterHands && afterHands < indicator);
+});
