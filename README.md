@@ -61,6 +61,18 @@ Settings → Calendar arcs provides two independent selectors: **rounded (origin
 Sharp calendar arcs now use **filled 4-point GPath quads** joining adjacent minute boundaries, with shared 1px edge sealing for pixel-perfect, flat starts and ends. The polygon is allocated once, avoiding per-frame heap allocations. Random event colors are selected from 14 bright entries of the same 16-color Clay palette (excluding dark gray and indigo), in chronological order. A deterministic, seed-based search ensures adjacent events have perceptibly different colors; the assignment is calculated only when calendar data arrive, not every second.
 
 
+### 1.16.0 — No-gap sharp arcs and three independent random color families
+
+On round watches, precise calendar arcs are now filled with the native `graphics_fill_radial` API. On square watches, the four-point GPath references a static backing array that stays valid for the lifetime of the watchface (previously it referenced a temporary stack array, which caused rendering artifacts). Both retain minute-accurate, flat end caps.
+
+Color selection now offers: **Calendar color**, **Random palette** (14 high-visibility entries from the existing 16-color picker), **Random bright colors** (28 bright RGB222 combinations), **Random full RGB** (63 of the device's 64 RGB222 colors, excluding black), and **Shades of calendar color**. These correspond to mode values 0, 1, 3, 4, and 2 respectively; prior settings remain valid. The color assignment is seeded and resolved on each calendar fetch, with contrast maximized against chronologically adjacent appointments.
+
+
+### 1.16.1 — Solid square calendar arcs without stripe artifacts
+
+Sharp calendar arcs on rectangular watches now use **pixel-exact scanline fills**, drawing contiguous horizontal runs inside the 8px perimeter ring and between the actual start/end minute rays. This replaces the per-minute GPath quads that produced visible striped holes in real watch screenshots. Round watches continue using native radial fills. The existing rounded style, random color schemes, saved options, and calendar transfer format are unchanged. No drawing allocations occur per frame.
+
+
 ### 1.15.2 — Meeting text avoids dial digits
 
 The three meeting-title lines now use a centrally inset text area with symmetric margins (at least 26 px on both sides). This prevents titles from running into the peripheral hour/minute digits or side complications. A 1px, background-colored text halo keeps underlying tick strokes visually behind meeting letters without covering calendar arcs with an opaque panel. The previous drawing order for the hands, complications, location, and hour indicator is unchanged.
@@ -71,3 +83,7 @@ The three meeting-title lines now use a centrally inset text area with symmetric
 Appointment location uses the same central horizontal margins and thin background-colored text outline as meeting titles. It naturally wraps into a second line and uses a trailing ellipsis if the full location is longer than two lines. The original location priority and position relative to the hands remain unchanged.
 
 Simultaneous timed appointments receive separate inward calendar arc lanes, using the full 24-hour start time and interval duration to detect overlaps. Each lane is separated from the next by the 8px stroke plus 2px gap, for both rounded/flat styles and round/rectangular displays. Lanes are assigned only when calendar data change; non-overlapping appointments reuse the outer lane. On very small screens, lane offsets are limited to preserve the dial center.
+
+### 1.17.1 — Restore 1.16.1 solid arcs and all RGB color modes
+
+This release reconciles the existing merge history without discarding either line of development: native radial fill and gap-free square scanlines from 1.16.1, the three seeded Random Palette, Random Bright Colors and Random Full RGB settings, and the subsequent meeting text margins, two-line location and nested calendar arcs for overlapping appointments. Arc lane offsets are applied to the complete filled square ring as well as the native radial and classic rounded drawing paths. Settings retain their previous numerical IDs and the existing app UUID.

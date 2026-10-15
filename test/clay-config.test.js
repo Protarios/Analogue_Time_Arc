@@ -472,7 +472,7 @@ test('new arc styles default to the prior rounded/calendar-colored rendering', (
   assert.equal(e.defaultValue,'0');
   assert.equal(c.defaultValue,'0');
   assert.deepEqual(e.options.map(x=>x.value),['0','1']);
-  assert.deepEqual(c.options.map(x=>x.value),['0','1','2']);
+  assert.deepEqual(c.options.map(x=>x.value),['0','1','3','4','2']);
   const app=sandbox({color0:4});
   app.events.showConfiguration();
   assert.equal(app.clay.settings.ArcEndStyle,'0');
@@ -508,25 +508,24 @@ test('stable event seed identifies appointments independently from their order',
   assert.equal(Number(rows[0].split(',')[5]),app.context.eventColorSeed(e));
 });
 
-test('sharp calendar arcs fill adjoining polygons with exact minute boundaries', () => {
+test('sharp calendar arcs fill a continuous square perimeter without polygons', () => {
   const source=fs.readFileSync(path.join(root,'src/c/watchface.c'),'utf8');
   assert.ok(source.includes('s_arc_end_style == 1'));
-  assert.ok(source.includes('int minute = start_min + 1; minute <= end_min; ++minute'));
-  assert.ok(source.includes('minute * TRIG_MAX_ANGLE / 720'));
-  assert.ok(source.includes('perimeter_point_at_angle(bounds, lane_inset + stroke_width, angle)'));
-  assert.ok(source.includes('points[0] = previous_inner'));
-  assert.ok(source.includes('points[1] = previous_outer'));
-  assert.ok(source.includes('points[2] = outer'));
-  assert.ok(source.includes('points[3] = inner'));
-  assert.ok(source.includes('gpath_draw_filled(ctx, s_arc_quad_path)'));
-  assert.ok(source.includes('graphics_draw_line(ctx, inner, outer)'));
-  assert.ok(source.includes('graphics_context_set_fill_color(ctx, arc_color)'));
-  assert.ok(source.includes('gpath_create(&quad_info)'));
-  assert.ok(source.includes('gpath_destroy(s_arc_quad_path)'));
+  assert.ok(source.includes('graphics_fill_radial(ctx, radial, GOvalScaleModeFitCircle,'));
+  assert.ok(source.includes('fill_square_calendar_arc(ctx, bounds, centre, stroke_width,'));
+  assert.ok(source.includes('fill_square_arc_row('));
+  assert.ok(source.includes('graphics_fill_rect(ctx, GRect(run_start, y,'));
+  assert.ok(source.includes('int32_t first_angle = (int32_t)start_min * TRIG_MAX_ANGLE / 720'));
+  assert.ok(source.includes('int32_t last_angle = (int32_t)end_min * TRIG_MAX_ANGLE / 720'));
+  assert.ok(source.includes('span_minutes <= 360'));
+  assert.ok(source.includes('span_minutes >= 720'));
+  assert.ok(!source.includes('gpath_draw_filled(ctx, s_arc_quad_path)'));
+  assert.ok(!source.includes('gpath_create(&quad_info)'));
+  assert.ok(!source.includes('GPoint quad_init[4]'));
   assert.ok(source.includes('start, 720'));
   assert.ok(source.includes('0, end'));
-  assert.ok(!source.includes('#define DRAW_ARC_SEGMENT'));
 });
+
 
 test('three arc coloring modes keep original palette and support stable variants', () => {
   const source=fs.readFileSync(path.join(root,'src/c/watchface.c'),'utf8');
@@ -550,11 +549,11 @@ test('random arc palette uses the existing bright color choices, not dark shades
   assert.deepEqual([...new Set(options)].sort((a,b)=>a-b),
                    [0,1,2,3,4,5,6,7,8,9,10,11,12,15]);
   assert.ok(!options.includes(13) && !options.includes(14));
-  assert.ok(source.includes('arc_palette_contrast(candidate, (uint8_t)previous) < 15'));
-  assert.ok(source.includes('arc_palette_contrast(candidate, (uint8_t)earlier) < 11'));
+  assert.ok(source.includes('score += 100 * arc_rgb_contrast(rgb, previous)'));
+  assert.ok(source.includes('score += 35 * arc_rgb_contrast(rgb, earlier)'));
   assert.ok(source.includes('arc_event_before(&s_events[current], &s_events[order[j - 1]])'));
   assert.ok(source.includes('assign_random_arc_colors();'));
-  assert.ok(source.includes('ev->random_color_idx = (uint8_t)selected'));
+  assert.ok(source.includes('ev->random_color_idx = s_random_arc_palette[best_index]'));
 });
 
 test('palette can assign distinct contrasting colors to chronologically adjacent events', () => {
@@ -593,6 +592,90 @@ test('palette can assign distinct contrasting colors to chronologically adjacent
     assert.ok(chosen[i]!==13 && chosen[i]!==14);
     if(i)assert.ok(contrast(chosen[i],chosen[i-1])>=15,
       'Adjacent appointment colors must have visible contrast');
+  }
+});
+
+test('random color options preserve legacy IDs and select full Pebble RGB222 space', () => {
+  const mode=fields.find(x=>x.messageKey==='ArcColorMode');
+  assert.deepEqual(mode.options.map(x=>x.value),['0','1','3','4','2']);
+  const app=sandbox({arcColorMode:4,arcEndStyle:1});
+  app.events.showConfiguration();
+  assert.equal(app.clay.settings.ArcColorMode,'4');
+  const settings={};
+  for(const f of fields) settings[f.messageKey]={value:app.clay.settings[f.messageKey]??f.defaultValue};
+  app.events.webviewclosed({response:JSON.stringify(settings)});
+  const saved=JSON.parse(app.memory.get('calendarConfig'));
+  assert.equal(saved.arcColorMode,4);
+  assert.equal(app.sent[0][73],4);
+  const source=fs.readFileSync(path.join(root,'src/c/watchface.c'),'utf8');
+  assert.ok(source.includes('int mode = random_modes[m]'));
+  assert.ok(source.includes('return mode == 1 ? 14 : (mode == 3 ? 28 : 63)'));
+  assert.ok(source.includes('if (mode == 4) return (uint8_t)(index + 1)'));
+  assert.ok(source.includes('r == 3 || g == 3 || b == 3'));
+  assert.ok(source.includes('r + g + b >= 5'));
+  assert.ok(source.includes('arc_colors->value->int32 <= 4'));
+  assert.ok(source.includes('ev->random_bright_rgb'));
+  assert.ok(source.includes('ev->random_full_rgb'));
+});
+
+test('sharp square perimeter is scanline rasterized and the original round path stays intact', () => {
+  const source=fs.readFileSync(path.join(root,'src/c/watchface.c'),'utf8');
+  assert.ok(source.includes('graphics_fill_radial(ctx, radial, GOvalScaleModeFitCircle,'));
+  assert.ok(source.includes('GRect(run_start, y, x - run_start, 1)'));
+  assert.ok(source.includes('GRect(run_start, y, to_x - run_start + 1, 1)'));
+  assert.ok(source.includes('bounds.origin.x + 1'));
+  assert.ok(source.includes('bounds.origin.y + 1'));
+  assert.ok(source.includes('outer_left + stroke_width'));
+  assert.ok(source.includes('inner_right + 1, outer_right'));
+  assert.ok(!source.includes('s_arc_quad_points'));
+  assert.ok(!source.includes('perimeter_point_at_angle'));
+  assert.ok(!source.includes('gpath_draw_filled'));
+});
+
+test('square arc scanline geometry has no internal pixel holes and flat minute cuts', () => {
+  // Independent reference rasterization of the wedge test used in C.
+  // Any pixel inside the ring and minute wedge must be filled, irrespective
+  // of the angle at which adjacent segments would have met.
+  const width=200, height=228, stroke=8;
+  const cx=100, cy=114;
+  const sin=m=>Math.sin(m*Math.PI/360);
+  const cos=m=>Math.cos(m*Math.PI/360);
+  const included=(x,y,start,end)=>{
+    if(end-start>=720)return true;
+    const dx=(x-cx)*2+1,dy=(y-cy)*2+1;
+    const sx=sin(start),sy=-cos(start);
+    const ex=sin(end),ey=-cos(end);
+    const first=sx*dy-sy*dx,second=dx*ey-dy*ex;
+    return end-start<=360?(first>=0&&second>=0):(first>=0||second>=0);
+  };
+  const onRing=(x,y)=> x>=1&&x<=width-2&&y>=1&&y<=height-2&&
+    (x<=stroke||x>=width-stroke-1||y<=stroke||y>=height-stroke-1);
+  for(const [begin,end] of [[510,570],[570,630],[630,700],[700,720],[0,60],[100,660],[0,720]]) {
+    const expected=new Set();
+    const rendered=new Set();
+    for(let y=1;y<height-1;y++)for(let x=1;x<width-1;x++) {
+      if(onRing(x,y)&&included(x,y,begin,end))expected.add(x+','+y);
+    }
+    // Simulate contiguous 1px-high fill_rect runs, not separate polygons.
+    for(let y=1;y<height-1;y++) {
+      let segments=(y<=stroke||y>=height-stroke-1)
+        ? [[1,width-2]] : [[1,stroke],[width-stroke-1,width-2]];
+      for(const [x0,x1] of segments) {
+        let run=-1;
+        for(let x=x0;x<=x1;x++) {
+          const covered=included(x,y,begin,end);
+          if(covered&&run<0)run=x;
+          else if(!covered&&run>=0) {
+            for(let q=run;q<x;q++)rendered.add(q+','+y);
+            run=-1;
+          }
+        }
+        if(run>=0)for(let q=run;q<=x1;q++)rendered.add(q+','+y);
+      }
+    }
+    assert.ok(expected.size>0);
+    assert.equal(rendered.size,expected.size,'Fill coverage for '+begin+'..'+end);
+    for(const pixel of expected)assert.ok(rendered.has(pixel),'Hole at '+pixel);
   }
 });
 
@@ -651,8 +734,8 @@ test('concurrent appointments get distinct inner arcs and reuse lanes after endi
   assert.ok(src.includes('ev->arc_lane * (arc_stroke + 2)'));
   assert.ok(src.includes('clock_radius + stroke_width - lane_inset'));
   assert.ok(src.includes('stroke_width / 2 + lane_inset'));
-  assert.ok(src.includes('perimeter_point_at_angle(bounds, lane_inset, angle)'));
-  assert.ok(src.includes('perimeter_point_at_angle(bounds, lane_inset + stroke_width, angle)'));
+  assert.ok(src.includes('const int outer_left = bounds.origin.x + 1 + lane_inset;'));
+  assert.ok(src.includes('fill_square_calendar_arc(ctx, bounds, centre, stroke_width,'));
   assert.ok(src.includes('assign_arc_overlap_lanes();'));
 
   const schedule=items=>{
@@ -682,4 +765,25 @@ test('concurrent appointments get distinct inner arcs and reuse lanes after endi
     {id:0,start:540,duration:120}, {id:1,start:570,duration:0,allDay:true},
     {id:2,start:550,duration:70}
   ]),[0,0,1]);
+});
+
+test('the restored solid arcs and three random modes coexist with the latest overlays', () => {
+  const source=fs.readFileSync(path.join(root,'src/c/watchface.c'),'utf8');
+  const colors=fields.find(f=>f.messageKey==='ArcColorMode');
+  assert.deepEqual(colors.options.map(x=>x.value),['0','1','3','4','2']);
+  assert.ok(source.includes('static const int random_modes[3] = { 1, 3, 4 };'));
+  assert.ok(source.includes('return mode == 1 ? 14 : (mode == 3 ? 28 : 63)'));
+  assert.ok(source.includes('graphics_fill_radial(ctx, radial, GOvalScaleModeFitCircle,'));
+  assert.ok(source.includes('fill_square_arc_row('));
+  assert.ok(source.includes('const int outer_left = bounds.origin.x + 1 + lane_inset;'));
+  assert.ok(source.includes('const int outer_top = bounds.origin.y + 1 + lane_inset;'));
+  assert.ok(source.includes('const int outer_right = bounds.origin.x + bounds.size.w - 2 - lane_inset;'));
+  assert.ok(source.includes('const int outer_bottom = bounds.origin.y + bounds.size.h - 2 - lane_inset;'));
+  assert.ok(source.includes('int outer_radius = clock_radius + stroke_width + stroke_width / 2 - lane_inset;'));
+  assert.ok(source.includes('assign_arc_overlap_lanes();'));
+  assert.ok(source.includes('draw_overlay_text(ctx, label, location_rect, s_text_color);'));
+  assert.ok(source.includes('int meeting_inset = bounds.size.w / 6;'));
+  assert.ok(!source.includes('s_arc_quad_path'));
+  const metadata=require(path.join(root,'package.json'));
+  assert.equal(metadata.version,'1.17.1');
 });

@@ -86,10 +86,12 @@ var config = [
     { type: 'select', messageKey: 'ArcColorMode', label: 'Arc colors / Bogenfarben',
       defaultValue: '0', options: [
         { value: '0', label: 'Calendar color / Kalenderfarbe' },
-        { value: '1', label: 'Stable random per event / Zufällig je Termin' },
+        { value: '1', label: 'Random palette / Zufällig aus der Farbpalette' },
+        { value: '3', label: 'Random bright colors / Zufällige leuchtende Farben' },
+        { value: '4', label: 'Random full RGB / Zufällig aus dem gesamten Farbraum' },
         { value: '2', label: 'Shades of calendar color / Kalenderfarbvarianten' }
       ] },
-    { type: 'text', defaultValue: 'Random colors and calendar-color shades are assigned consistently to each appointment.' }
+    { type: 'text', defaultValue: 'Pebble uses 64-color RGB (2 bits per channel). Random Full RGB covers all device colors except pure black. Colors remain stable between redraws.' }
   ] },
   { type: 'section', items: [
     { type: 'heading', defaultValue: 'Complications / Komplikationen' },

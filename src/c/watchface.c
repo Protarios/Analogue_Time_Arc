@@ -105,8 +105,10 @@ typedef struct {
     bool all_day;    // true for date-only VEVENT; never render as arc
     int full_start_mins; // unwrapped 0-1439 minutes, for 24h event text
     uint8_t color_seed; // stable identity-based per-appointment color seed
-    uint8_t random_color_idx; // resolved palette entry, contrast-adjusted to neighbors
-    uint8_t arc_lane; // inner-ring level for chronologically overlapping appointments
+    uint8_t random_color_idx; // palette entry, contrast-adjusted to neighbors
+    uint8_t random_bright_rgb; // RGB222 (0..63), bright-color selection
+    uint8_t random_full_rgb; // RGB222 (1..63), entire palette except black
+    uint8_t arc_lane; // separate ring for overlapping events
 } CalEvent;
 
 // --- State ---------------------------------------------------
@@ -126,7 +128,7 @@ static int    s_tick_mode      = 1;    // 0: none, 1: hours, 2: hours + minutes
 // Default colours spread across the palette for visual variety
 static int s_cal_color_idx[MAX_CALENDARS] = { 0, 4, 8, 2, 9, 5, 1, 7, 10, 3 };
 static int s_arc_end_style = 0;   // 0: original rounded, 1: precise flat end
-static int s_arc_color_mode = 0;  // 0: calendar, 1: random, 2: calendar shades
+static int s_arc_color_mode = 0;  // 0: calendar, 1: palette, 2: shades, 3: bright RGB, 4: full RGB
 static int s_hour_hand_color = 11;
 static int s_min_hand_color  = 11;
 static int s_tick_color      = 11; // formerly shared with minute hand
@@ -158,7 +160,6 @@ static int s_weather_code = -1;
 
 static CalEvent s_events[MAX_EVENTS];
 static int      s_event_count = 0;
-static GPath   *s_arc_quad_path = NULL; // reused 4-point fill, no per-frame allocations
 
 static GFont s_small_font;
 static GFont s_date_font;
@@ -244,23 +245,6 @@ static GPoint perimeter_point(GRect bounds, int inset, int angle_deg) {
     const int32_t half_h = bounds.size.h / 2 - 1 - inset;
     const int32_t sn = sin_lookup(DEG_TO_TRIGANGLE(angle_deg));
     const int32_t cv = cos_lookup(DEG_TO_TRIGANGLE(angle_deg));
-    const int32_t abs_sn = sn < 0 ? -sn : sn;
-    const int32_t abs_cv = cv < 0 ? -cv : cv;
-    int32_t radius_x = abs_sn ? half_w * TRIG_MAX_RATIO / abs_sn : INT32_MAX;
-    int32_t radius_y = abs_cv ? half_h * TRIG_MAX_RATIO / abs_cv : INT32_MAX;
-    int32_t radius = radius_x < radius_y ? radius_x : radius_y;
-    const int cx = bounds.origin.x + bounds.size.w / 2;
-    const int cy = bounds.origin.y + bounds.size.h / 2;
-    return GPoint(cx + sn * radius / TRIG_MAX_RATIO,
-                  cy - cv * radius / TRIG_MAX_RATIO);
-}
-
-// Sub-degree perimeter intersection for exact minute boundaries.
-static GPoint perimeter_point_at_angle(GRect bounds, int inset, int32_t angle) {
-    const int32_t half_w = bounds.size.w / 2 - 1 - inset;
-    const int32_t half_h = bounds.size.h / 2 - 1 - inset;
-    const int32_t sn = sin_lookup(angle);
-    const int32_t cv = cos_lookup(angle);
     const int32_t abs_sn = sn < 0 ? -sn : sn;
     const int32_t abs_cv = cv < 0 ? -cv : cv;
     int32_t radius_x = abs_sn ? half_w * TRIG_MAX_RATIO / abs_sn : INT32_MAX;
@@ -945,15 +929,43 @@ static void draw_complication_text(GContext *ctx, GRect area, int type,
 static const uint8_t s_random_arc_palette[14] =
     { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15 };
 
-static int arc_palette_contrast(uint8_t lhs, uint8_t rhs) {
-    uint8_t a = s_palette_argb[lhs];
-    uint8_t b = s_palette_argb[rhs];
-    int dr = ((a >> 4) & 3) - ((b >> 4) & 3);
-    int dg = ((a >> 2) & 3) - ((b >> 2) & 3);
-    int db = (a & 3) - (b & 3);
-    // Weighted squared color distance in Pebble's 2-bit RGB space.
+// Weighted color-space distance (3:4:2 approximates RGB222 visibility).
+static int arc_rgb_contrast(uint8_t lhs, uint8_t rhs) {
+    int dr = ((lhs >> 4) & 3) - ((rhs >> 4) & 3);
+    int dg = ((lhs >> 2) & 3) - ((rhs >> 2) & 3);
+    int db = (lhs & 3) - (rhs & 3);
     return 3 * dr * dr + 4 * dg * dg + 2 * db * db;
 }
+
+static bool arc_is_bright_rgb(int rgb) {
+    int r = (rgb >> 4) & 3, g = (rgb >> 2) & 3, b = rgb & 3;
+    // 28 distinct high-brightness RGB222 colors, not limited to the Clay palette.
+    return (r == 3 || g == 3 || b == 3) && (r + g + b >= 5);
+}
+
+// Valid randomized modes: 1=chosen Clay colors, 3=bright 28,
+// 4=all 63 non-black colors supported by the Pebble screen.
+static int arc_random_color_count(int mode) {
+    return mode == 1 ? 14 : (mode == 3 ? 28 : 63);
+}
+
+static uint8_t arc_random_rgb_candidate(int mode, int index) {
+    if (mode == 1)
+        return (uint8_t)(s_palette_argb[s_random_arc_palette[index]] & 0x3F);
+    if (mode == 4) return (uint8_t)(index + 1); // 1..63; black excluded
+    for (int rgb = 1; rgb < 64; ++rgb) {
+        if (!arc_is_bright_rgb(rgb)) continue;
+        if (index-- == 0) return (uint8_t)rgb;
+    }
+    return 63; // defensive fallback
+}
+
+static uint8_t arc_selected_rgb(const CalEvent *ev, int mode) {
+    if (mode == 1) return (uint8_t)(s_palette_argb[ev->random_color_idx] & 0x3F);
+    if (mode == 3) return ev->random_bright_rgb;
+    return ev->random_full_rgb;
+}
+
 
 static bool arc_event_before(const CalEvent *a, const CalEvent *b) {
     if (a->full_start_mins != b->full_start_mins)
@@ -965,11 +977,10 @@ static bool arc_event_before(const CalEvent *a, const CalEvent *b) {
     return a->duration_mins < b->duration_mins;
 }
 
-// Called when the calendar packet changes, not during the every-second
-// drawing routine. Sort by actual start time, not incoming message order.
-// Each event starts at its seeded palette choice and walks a permutation
-// until it is visually distinct from the immediate chronological neighbor.
-// Where possible it also contrasts with the second most recent appointment.
+// Resolve all three random schemes when events arrive, never on each frame.
+// Chronological sorting makes colors independent of packet ordering. Within
+// each scheme, maximizing weighted RGB contrast keeps adjacent appointments
+// visibly different; seeded candidate order breaks ties reproducibly.
 static void assign_random_arc_colors(void) {
     int order[MAX_EVENTS];
     int count = 0;
@@ -978,8 +989,7 @@ static void assign_random_arc_colors(void) {
         order[count++] = i;
     }
     for (int i = 1; i < count; ++i) {
-        int current = order[i];
-        int j = i;
+        int current = order[i], j = i;
         while (j > 0 &&
                arc_event_before(&s_events[current], &s_events[order[j - 1]])) {
             order[j] = order[j - 1];
@@ -987,36 +997,46 @@ static void assign_random_arc_colors(void) {
         }
         order[j] = current;
     }
-    for (int i = 0; i < count; ++i) {
-        CalEvent *ev = &s_events[order[i]];
-        int first = ev->color_seed % 14;
-        int previous = i > 0 ? s_events[order[i - 1]].random_color_idx : -1;
-        int earlier = i > 1 ? s_events[order[i - 2]].random_color_idx : -1;
-        int selected = -1;
 
-        for (int pass = 0; pass < 2 && selected < 0; ++pass) {
-            for (int j = 0; j < 14; ++j) {
-                // Step 5 is coprime to 14: all palette colors are considered.
-                uint8_t candidate = s_random_arc_palette[(first + j * 5) % 14];
-                if (previous >= 0 &&
-                    arc_palette_contrast(candidate, (uint8_t)previous) < 15)
-                    continue;
-                if (pass == 0 && earlier >= 0 &&
-                    arc_palette_contrast(candidate, (uint8_t)earlier) < 11)
-                    continue;
-                selected = candidate;
-                break;
+    static const int random_modes[3] = { 1, 3, 4 };
+    for (int m = 0; m < 3; ++m) {
+        int mode = random_modes[m];
+        int choices = arc_random_color_count(mode);
+        for (int i = 0; i < count; ++i) {
+            CalEvent *ev = &s_events[order[i]];
+            int first = (ev->color_seed + mode * 11) % choices;
+            int best_index = first;
+            int best_score = INT_MIN;
+            for (int n = 0; n < choices; ++n) {
+                // 5 is coprime with 14, 28 and 63: visit each color once.
+                int idx = (first + n * 5) % choices;
+                uint8_t rgb = arc_random_rgb_candidate(mode, idx);
+                int score = choices - n; // tie breaker derived from seed
+                if (i >= 1) {
+                    uint8_t previous = arc_selected_rgb(&s_events[order[i - 1]], mode);
+                    score += 100 * arc_rgb_contrast(rgb, previous);
+                    if (rgb == previous) score -= 10000;
+                }
+                if (i >= 2) {
+                    uint8_t earlier = arc_selected_rgb(&s_events[order[i - 2]], mode);
+                    score += 35 * arc_rgb_contrast(rgb, earlier);
+                }
+                if (score > best_score) {
+                    best_score = score;
+                    best_index = idx;
+                }
             }
+            if (mode == 1)
+                ev->random_color_idx = s_random_arc_palette[best_index];
+            else if (mode == 3)
+                ev->random_bright_rgb = arc_random_rgb_candidate(mode, best_index);
+            else
+                ev->random_full_rgb = arc_random_rgb_candidate(mode, best_index);
         }
-        // Normally unnecessary (14 choices), but always keep a valid entry.
-        if (selected < 0)
-            selected = s_random_arc_palette[first];
-        ev->random_color_idx = (uint8_t)selected;
     }
 }
 
-// Assign one arc lane to each timed event when calendar data arrive.
-// All-day events are ignored; adjacent intervals may reuse an outer lane.
+
 static void assign_arc_overlap_lanes(void) {
     int order[MAX_EVENTS], count = 0;
     int lane_end[MAX_EVENTS];
@@ -1055,6 +1075,10 @@ static GColor event_arc_color(const CalEvent *ev, int calendar_idx) {
     GColor base = palette_color(s_cal_color_idx[calendar_idx]);
     if (s_arc_color_mode == 1)
         return palette_color(ev->random_color_idx);
+    if (s_arc_color_mode == 3)
+        return (GColor){ .argb = (uint8_t)(0xC0 | ev->random_bright_rgb) };
+    if (s_arc_color_mode == 4)
+        return (GColor){ .argb = (uint8_t)(0xC0 | ev->random_full_rgb) };
     if (s_arc_color_mode != 2) return base;
 
     int shade = ev->color_seed % 3;
@@ -1080,10 +1104,79 @@ static GColor event_arc_color(const CalEvent *ev, int calendar_idx) {
     return (GColor){ .argb = (uint8_t)(0xC0 | (r << 4) | (g << 2) | b) };
 }
 
-// The rounded path is preserved from the previous watchface.
-// For precise ends, the ring consists of 1px radial strokes whose first
-// and last strokes create a flat cut at the exact minute angle.
-// Half-minute angular sampling provides contiguous pixels on square dials.
+// Scanline fill for the rectangular calendar ring. The wedge predicate
+// uses cross products of rays at the exact minute start/end angles, so
+// there is no angle sampling or GPath rasterization between segments.
+// A horizontal run is filled using graphics_fill_rect; every matching
+// ring pixel is written exactly once, with no polygon joins or seams.
+static void fill_square_arc_row(GContext *ctx, GPoint centre,
+                                 int y, int from_x, int to_x,
+                                 int32_t start_x, int32_t start_y,
+                                 int32_t end_x, int32_t end_y,
+                                 int span_minutes) {
+    int run_start = -1;
+    int32_t dy = (y - centre.y) * 2 + 1; // evaluate pixel centres
+    for (int x = from_x; x <= to_x; ++x) {
+        int32_t dx = (x - centre.x) * 2 + 1;
+        int32_t from_start = start_x * dy - start_y * dx;
+        int32_t to_end = dx * end_y - dy * end_x;
+        bool inside = span_minutes >= 720 ||
+            (span_minutes <= 360
+             ? (from_start >= 0 && to_end >= 0)
+             : (from_start >= 0 || to_end >= 0));
+        if (inside && run_start < 0) {
+            run_start = x;
+        } else if (!inside && run_start >= 0) {
+            graphics_fill_rect(ctx, GRect(run_start, y, x - run_start, 1),
+                               0, GCornerNone);
+            run_start = -1;
+        }
+    }
+    if (run_start >= 0)
+        graphics_fill_rect(ctx, GRect(run_start, y, to_x - run_start + 1, 1),
+                           0, GCornerNone);
+}
+
+static void fill_square_calendar_arc(GContext *ctx, GRect bounds,
+                                      GPoint centre, int stroke_width,
+                                      int start_min, int end_min,
+                                      int lane_inset) {
+    // The old rounded stroke follows perimeter_point(bounds, inset=4).
+    // The equivalent solid strip runs 8px wide from border inset 1.
+    const int outer_left = bounds.origin.x + 1 + lane_inset;
+    const int outer_top = bounds.origin.y + 1 + lane_inset;
+    const int outer_right = bounds.origin.x + bounds.size.w - 2 - lane_inset;
+    const int outer_bottom = bounds.origin.y + bounds.size.h - 2 - lane_inset;
+    const int inner_left = outer_left + stroke_width;
+    const int inner_top = outer_top + stroke_width;
+    const int inner_right = outer_right - stroke_width;
+    const int inner_bottom = outer_bottom - stroke_width;
+    if (outer_left >= inner_right || outer_top >= inner_bottom) return;
+
+    int32_t first_angle = (int32_t)start_min * TRIG_MAX_ANGLE / 720;
+    int32_t last_angle = (int32_t)end_min * TRIG_MAX_ANGLE / 720;
+    int32_t sx = sin_lookup(first_angle), sy = -cos_lookup(first_angle);
+    int32_t ex = sin_lookup(last_angle), ey = -cos_lookup(last_angle);
+    int span_minutes = end_min - start_min;
+
+    for (int y = outer_top; y <= outer_bottom; ++y) {
+        if (y < inner_top || y > inner_bottom) {
+            fill_square_arc_row(ctx, centre, y, outer_left, outer_right,
+                                sx, sy, ex, ey, span_minutes);
+        } else {
+            // Skip the centre completely: only the left/right perimeter
+            // strips can contain pixels in these middle rows.
+            fill_square_arc_row(ctx, centre, y, outer_left, inner_left - 1,
+                                sx, sy, ex, ey, span_minutes);
+            fill_square_arc_row(ctx, centre, y, inner_right + 1, outer_right,
+                                sx, sy, ex, ey, span_minutes);
+        }
+    }
+}
+
+// The original rounded line rendering is preserved.
+// Sharp ends use native radial fill on round watches and solid scanline
+// filling on square watches, both bounded by exact start/end angles.
 static void draw_calendar_arc_segment(GContext *ctx, GRect bounds, GPoint centre,
                                       int clock_radius, bool is_round,
                                       int stroke_width, int start_min, int end_min,
@@ -1091,59 +1184,26 @@ static void draw_calendar_arc_segment(GContext *ctx, GRect bounds, GPoint centre
     if (start_min >= end_min) return;
 
     if (s_arc_end_style == 1) {
-        // Adjacent filled quads meet along the same radial edge, removing
-        // the pinholes left by the old individually drawn 1px spokes.
-        // At the dial's scale, 1 minute = 0.5 degrees (< 1 pixel), so
-        // 1-minute segments are precise and cheaper than 0.5-minute strokes.
-        GPoint previous_inner, previous_outer;
-        int32_t initial_angle = (int32_t)start_min * TRIG_MAX_ANGLE / 720;
         if (is_round) {
-            int radius = clock_radius + stroke_width - lane_inset;
-            int r_inner = radius - stroke_width / 2;
-            int r_outer = r_inner + stroke_width;
-            int32_t sn = sin_lookup(initial_angle), cv = cos_lookup(initial_angle);
-            previous_inner = GPoint(centre.x + sn * r_inner / TRIG_MAX_RATIO,
-                                    centre.y - cv * r_inner / TRIG_MAX_RATIO);
-            previous_outer = GPoint(centre.x + sn * r_outer / TRIG_MAX_RATIO,
-                                    centre.y - cv * r_outer / TRIG_MAX_RATIO);
-        } else {
-            previous_inner = perimeter_point_at_angle(bounds, lane_inset + stroke_width, initial_angle);
-            previous_outer = perimeter_point_at_angle(bounds, lane_inset, initial_angle);
+            // Pebble's native contiguous filled annular segment eliminates
+            // polygon rasterization seams on the round watch display.
+            int outer_radius = clock_radius + stroke_width + stroke_width / 2 - lane_inset;
+            GRect radial = GRect(centre.x - outer_radius,
+                                 centre.y - outer_radius,
+                                 2 * outer_radius, 2 * outer_radius);
+            int32_t angle_start = (int32_t)start_min * TRIG_MAX_ANGLE / 720;
+            int32_t angle_end   = (int32_t)end_min * TRIG_MAX_ANGLE / 720;
+            graphics_fill_radial(ctx, radial, GOvalScaleModeFitCircle,
+                                 stroke_width, angle_start, angle_end);
+            return;
         }
 
-        graphics_context_set_stroke_width(ctx, 1);
-        graphics_draw_line(ctx, previous_inner, previous_outer);
-        for (int minute = start_min + 1; minute <= end_min; ++minute) {
-            int32_t angle = (int32_t)minute * TRIG_MAX_ANGLE / 720;
-            GPoint inner, outer;
-            if (is_round) {
-                int radius = clock_radius + stroke_width - lane_inset;
-                int r_inner = radius - stroke_width / 2;
-                int r_outer = r_inner + stroke_width;
-                int32_t sn = sin_lookup(angle), cv = cos_lookup(angle);
-                inner = GPoint(centre.x + sn * r_inner / TRIG_MAX_RATIO,
-                               centre.y - cv * r_inner / TRIG_MAX_RATIO);
-                outer = GPoint(centre.x + sn * r_outer / TRIG_MAX_RATIO,
-                               centre.y - cv * r_outer / TRIG_MAX_RATIO);
-            } else {
-                inner = perimeter_point_at_angle(bounds, lane_inset + stroke_width, angle);
-                outer = perimeter_point_at_angle(bounds, lane_inset, angle);
-            }
-
-            if (s_arc_quad_path) {
-                GPoint *points = s_arc_quad_path->points;
-                points[0] = previous_inner;
-                points[1] = previous_outer;
-                points[2] = outer;
-                points[3] = inner;
-                gpath_draw_filled(ctx, s_arc_quad_path);
-            }
-            // Explicit shared radial edge closes rasterizer seams between
-            // neighboring filled quads, without extending the sharp end caps.
-            graphics_draw_line(ctx, inner, outer);
-            previous_inner = inner;
-            previous_outer = outer;
-        }
+        // Square dial: fill horizontal runs of the *actual* 8-pixel border
+        // that lie between the exact start and end rays. No incremental
+        // polygon rasterization -> no alternating gaps or unfilled rows.
+        // The original rounded implementation uses the same inset width.
+        fill_square_calendar_arc(ctx, bounds, centre, stroke_width,
+                                 start_min, end_min, lane_inset);
         return;
     }
 
@@ -1478,7 +1538,7 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
             if (*p == '|') p++; else break;
         }
         assign_arc_overlap_lanes();
-        assign_random_arc_colors();
+    assign_random_arc_colors();
     }
 
     Tuple *wt = dict_find(iter, KEY_WEATHER_TEMP);
@@ -1493,7 +1553,7 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
         s_arc_end_style = (int)arc_ends->value->int32;
     Tuple *arc_colors = dict_find(iter, KEY_ARC_COLOR_MODE);
     if (arc_colors && arc_colors->value->int32 >= 0 &&
-        arc_colors->value->int32 <= 2)
+        arc_colors->value->int32 <= 4)
         s_arc_color_mode = (int)arc_colors->value->int32;
 
     Tuple *tc = dict_find(iter, KEY_TICK_COLOR);
@@ -1645,13 +1705,6 @@ static void init(void) {
     s_events[3].all_day = false;
     
     #endif
-    // One reusable polygon for all sharp calendar arc segments. No heap
-    // allocation inside the painting loop, including second ticks.
-    GPoint quad_init[4] = {
-        GPoint(0, 0), GPoint(0, 0), GPoint(0, 0), GPoint(0, 0)
-    };
-    GPathInfo quad_info = { .num_points = 4, .points = quad_init };
-    s_arc_quad_path = gpath_create(&quad_info);
     assign_arc_overlap_lanes();
     assign_random_arc_colors();
     s_small_font = fonts_get_system_font(FONT_KEY_GOTHIC_18);
@@ -1680,7 +1733,6 @@ static void deinit(void) {
     if (s_health_subscribed) health_service_events_unsubscribe();
     #endif
     window_destroy(s_window);
-    if (s_arc_quad_path) gpath_destroy(s_arc_quad_path);
     gbitmap_destroy(s_rainbow_bitmap);
     battery_state_service_unsubscribe();
 }

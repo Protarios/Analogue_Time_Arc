@@ -94,7 +94,7 @@ function legacyToClay(config) {
         TopComplication: String(migrationSlot(config, 'topComplication', 2)),
         TickMode: String(tickMode(config)),
         ArcEndStyle: String(validOption(config.arcEndStyle, 0, 1)),
-        ArcColorMode: String(validOption(config.arcColorMode, 0, 2)),
+        ArcColorMode: String(validOption(config.arcColorMode, 0, 4)),
         ShowSeconds: config.showSeconds !== false,
         OverlayAboveHands: config.overlayAboveHands === true,
         BatteryStyle: String(batteryStyle(config.batteryStyle)),
@@ -145,7 +145,7 @@ function clayToLegacy(settings, previous) {
     config.arcEndStyle = validOption(clayValue(settings, 'ArcEndStyle',
         config.arcEndStyle == null ? 0 : config.arcEndStyle), 0, 1);
     config.arcColorMode = validOption(clayValue(settings, 'ArcColorMode',
-        config.arcColorMode == null ? 0 : config.arcColorMode), 0, 2);
+        config.arcColorMode == null ? 0 : config.arcColorMode), 0, 4);
     config.showTicks = config.tickMode !== 0; // preserve legacy callers
     config.showSeconds = !!clayValue(settings, 'ShowSeconds', true);
     config.overlayAboveHands = !!clayValue(settings, 'OverlayAboveHands', false);
@@ -576,7 +576,7 @@ function sendDisplaySettings() {
         71: tickMode(config),
         70: batteryStyle(config.batteryStyle),
         72: validOption(config.arcEndStyle, 0, 1),
-        73: validOption(config.arcColorMode, 0, 2),
+        73: validOption(config.arcColorMode, 0, 4),
         12: typeof config.hourColor === "number" ? config.hourColor : 11,
         13: packedColors,
         14: typeof config.minuteColor === "number" ? config.minuteColor : 11,
