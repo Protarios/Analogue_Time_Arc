@@ -603,7 +603,8 @@ test('meeting text stays in central dial, hour digits remain behind it', () => {
   assert.ok(renderer.includes('int meeting_inset = bounds.size.w / 6;'));
   assert.ok(renderer.includes('if (meeting_inset < 26) meeting_inset = 26;'));
   assert.ok(renderer.includes('bounds.size.w - meeting_inset * 2, 16'));
-  assert.ok(renderer.includes('GTextOverflowModeTrailingEllipsis'));
+  assert.ok(source.includes('GTextOverflowModeTrailingEllipsis'));
+  assert.ok(source.includes('static void draw_overlay_text('));
   assert.ok(source.includes('graphics_context_set_text_color(ctx, s_bg_color)'));
   assert.ok(renderer.includes('draw_overlay_text(ctx, buf, text_rect,'));
   assert.ok(source.includes('static const int8_t offsets[4][2]'));
