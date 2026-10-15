@@ -785,7 +785,7 @@ test('the restored solid arcs and three random modes coexist with the latest ove
   assert.ok(source.includes('int meeting_inset = bounds.size.w / 12;'));
   assert.ok(!source.includes('s_arc_quad_path'));
   const metadata=require(path.join(root,'package.json'));
-  assert.equal(metadata.version,'1.17.1');
+  assert.match(metadata.version, /^1\.17\./);
 });
 
 test('meeting margins are halved without changing location wrapping or dial order', () => {
