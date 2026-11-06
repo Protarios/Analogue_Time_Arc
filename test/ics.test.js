@@ -111,3 +111,44 @@ test('appointment starting tonight and ending after midnight stays visible', () 
   const events = context.parseICS(raw, 0, now, cutoff);
   assert.equal(events.length, 1);
 });
+
+test('expired yearly RRULE COUNT=1 or 3 from 2020 cannot create events in 2026', () => {
+  const now = new Date(2026, 10, 6, 9, 0), cutoff = new Date(2026, 10, 6, 21, 0);
+  function yearly(count) {
+    return ['BEGIN:VCALENDAR','BEGIN:VEVENT',
+      'DTSTART:20201106T100000','DTEND:20201106T110000',
+      'RRULE:FREQ=YEARLY;COUNT='+count,
+      'SUMMARY:Expired historical appointment','END:VEVENT','END:VCALENDAR'].join('\n');
+  }
+  for(const count of [1,2,3,6])
+    assert.equal(context.parseICS(yearly(count),0,now,cutoff).length,0);
+  const seventh=context.parseICS(yearly(7),0,now,cutoff);
+  assert.equal(seventh.length,1);
+  assert.equal(seventh[0].title,'Expired historical appointment');
+  assert.equal(seventh[0].startTime,new Date(2026,10,6,10,0).getTime());
+});
+
+test('COUNT consumes historical daily and weekly occurrences before fetch window', () => {
+  const now=new Date(2026,10,6,9,0),cutoff=new Date(2026,10,6,21,0);
+  const build=(start,end,rule)=>['BEGIN:VEVENT','DTSTART:'+start,'DTEND:'+end,
+    'RRULE:'+rule,'SUMMARY:Recurrence','END:VEVENT'].join('\n');
+  const daily=build('20261101T100000','20261101T110000','FREQ=DAILY;COUNT=3');
+  assert.equal(context.parseICS(daily,0,now,cutoff).length,0);
+  const weekly=build('20261030T100000','20261030T110000','FREQ=WEEKLY;BYDAY=MO,FR;COUNT=2');
+  assert.equal(context.parseICS(weekly,0,now,cutoff).length,0);
+  const valid=build('20261030T100000','20261030T110000','FREQ=WEEKLY;BYDAY=MO,FR;COUNT=3');
+  assert.equal(context.parseICS(valid,0,now,cutoff).length,1);
+});
+
+test('cancelled VEVENTs are excluded, confirmed and genuinely repeating events remain', () => {
+  const now=new Date(2026,10,6,9,0), cutoff=new Date(2026,10,6,21,0);
+  const vevent=(status,rule,start='20261106T100000',end='20261106T110000')=>
+    ['BEGIN:VEVENT','DTSTART:'+start,'DTEND:'+end,
+      ...(rule?['RRULE:'+rule]:[]),
+      ...(status?['STATUS:'+status]:[]),'SUMMARY:Test appointment','END:VEVENT'].join('\n');
+  assert.equal(context.parseICS(vevent('CANCELLED'),0,now,cutoff).length,0);
+  assert.equal(context.parseICS(vevent('CANCELLED','FREQ=YEARLY','20201106T100000','20201106T110000'),0,now,cutoff).length,0);
+  assert.equal(context.parseICS(vevent('CONFIRMED'),0,now,cutoff).length,1);
+  assert.equal(context.parseICS(vevent('','FREQ=YEARLY','20201106T100000','20201106T110000'),0,now,cutoff).length,1);
+  assert.equal(context.parseICS(vevent('',null,'20201106T100000','20201106T110000'),0,now,cutoff).length,0);
+});

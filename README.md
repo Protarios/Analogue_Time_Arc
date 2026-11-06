@@ -91,3 +91,7 @@ This release reconciles the existing merge history without discarding either lin
 ### 1.17.2 — Wider meeting title lines
 
 The three appointment lines now use half their previous horizontal margin (screen width/12, minimum 13px, instead of width/6, minimum 26px), allowing longer titles before ellipsizing. The two-line location keeps its existing narrower margins and the hands/complication/calendar arc drawing order is unchanged.
+
+### 1.17.3 — Ignore expired and cancelled historic calendar events
+
+Correct RFC 5545 RRULE COUNT handling: all recurrence instances since DTSTART count against the series limit, not only instances within the current fetch window. In particular, an old yearly COUNT=1 or COUNT=3 appointment can no longer reappear years later. Cancelled VEVENTs (STATUS:CANCELLED) are now excluded. Active unlimited recurrence rules and valid dates remain unaffected. More advanced exception overrides (RECURRENCE-ID / RDATE) are not yet fully implemented and require separate support.

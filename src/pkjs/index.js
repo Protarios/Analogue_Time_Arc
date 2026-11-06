@@ -338,20 +338,22 @@ function expandRRule(dtstart, rruleStr, now, cutoff) {
                     if (candidate.getDay() === byDay[b]) { inByDay = true; break; }
                 }
                 if (!inByDay) continue;
-                if (candidate >= now) {
+                // COUNT is the total lifetime of the series, not the
+                // count of occurrences within the current fetch window.
+                if (candidate >= now)
                     occurrences.push(new Date(candidate.getTime()));
-                    if (count > 0 && --count === 0) break;
-                }
+                if (count > 0 && --count === 0) break;
             }
             // Advance cursor by interval weeks
             cursor.setDate(cursor.getDate() + 7 * interval);
 
         } else {
             // Simple case: one occurrence per step
-            if (cursor >= now) {
+            // Consume COUNT for historical occurrences too. Otherwise
+            // a series from years ago with COUNT=1 reappears today.
+            if (cursor >= now)
                 occurrences.push(new Date(cursor.getTime()));
-                if (count > 0 && --count === 0) break;
-            }
+            if (count > 0 && --count === 0) break;
             if (freq === "DAILY") {
                 cursor.setDate(cursor.getDate() + interval);
             } else if (freq === "WEEKLY") {
@@ -428,6 +430,7 @@ function parseICS(raw, calendarIndex, now, cutoff) {
                 duration: null,
                 rrule: null,
                 exdates: {},
+                status: "",
                 summary: "",
                 location: ""
             };
@@ -435,7 +438,7 @@ function parseICS(raw, calendarIndex, now, cutoff) {
         }
 
         if (line === "END:VEVENT") {
-            if (current && current.dtstart) {
+            if (current && current.dtstart && current.status !== "CANCELLED") {
                 var start = current.dtstart;
                 var durationMs;
 
@@ -529,6 +532,10 @@ function parseICS(raw, calendarIndex, now, cutoff) {
 
         else if (key === "RRULE") {
             current.rrule = value;
+        }
+
+        else if (key === "STATUS") {
+            current.status = value.trim().toUpperCase();
         }
 
         else if (key === "SUMMARY") {
